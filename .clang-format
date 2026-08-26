@@ -1,0 +1,10 @@
+IndentWidth: 4
+ColumnLimit: 110
+
+PointerAlignment: Left
+NamespaceIndentation: All
+
+AlignEscapedNewlines: Left
+AlignAfterOpenBracket: true
+AlignTrailingComments: Never
+AllowShortFunctionsOnASingleLine: Inline

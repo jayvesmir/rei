@@ -1,0 +1,1 @@
+Checks: 'clang-diagnostic-*,clang-analyzer-*,concurrency-*,performance-*,portability-*,modernize-*,-performance-enum-size'
