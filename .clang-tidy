@@ -1,1 +1,1 @@
-Checks: 'clang-diagnostic-*,clang-analyzer-*,concurrency-*,performance-*,portability-*,modernize-*,-performance-enum-size'
+Checks: 'clang-diagnostic-*,clang-analyzer-*,concurrency-*,performance-*,portability-*,readability-*,modernize-*,-portability-avoid-pragma-once,-readability-magic-numbers,-readability-use-concise-preprocessor-directives,-readability-function-cognitive-complexity,-bugprone-easily-swappable-parameters,-performance-enum-size'
