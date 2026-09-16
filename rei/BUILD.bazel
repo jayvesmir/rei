@@ -1,0 +1,12 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+cc_library(
+    name = "rei",
+    include_prefix = "rei",
+
+    deps = [
+        "//rei/core",
+    ],
+
+    visibility = ["//visibility:public"]
+)
