@@ -4,6 +4,10 @@ cc_library(
     name = "core",
     include_prefix = "core",
 
+    hdrs = [
+        "error.hpp",
+    ],
+
     cxxopts = ["-std=c++23"],
     visibility = ["//visibility:public"],
 )
