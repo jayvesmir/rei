@@ -6,6 +6,7 @@ cc_library(
 
     hdrs = [
         "error.hpp",
+        "error_code.hpp",
     ],
 
     cxxopts = ["-std=c++23"],
