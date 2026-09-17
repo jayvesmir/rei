@@ -18,7 +18,7 @@ namespace rei::core {
             [[nodiscard]] auto name() const noexcept -> const char* override { return "rei.core"; }
 
             [[nodiscard]] auto message(int code) const -> std::string override {
-                switch (static_cast<error_code>(code)) {
+                switch (static_cast<core::error_code>(code)) {
                 case error_code::unknown:
                     return "unknown";
                 case error_code::invalid_argument:
@@ -32,7 +32,7 @@ namespace rei::core {
 
             [[nodiscard]] auto default_error_condition(int code) const noexcept
                 -> std::error_condition override {
-                switch (static_cast<error_code>(code)) {
+                switch (static_cast<core::error_code>(code)) {
                 case error_code::invalid_argument:
                     return std::make_error_condition(std::errc::invalid_argument);
                 case error_code::not_supported:
@@ -44,7 +44,7 @@ namespace rei::core {
         };
     } // namespace detail
 
-    inline auto make_error_code(error_code code) noexcept -> std::error_code {
+    inline auto make_error_code(core::error_code code) noexcept -> std::error_code {
         static const detail::error_category category;
         return {static_cast<int>(code), category};
     }
