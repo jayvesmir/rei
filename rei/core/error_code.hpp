@@ -6,7 +6,7 @@
 
 namespace rei::core {
     enum class error_code {
-        invalid_state = 1,
+        unknown = 1,
         invalid_argument,
         not_supported,
     };
@@ -19,8 +19,8 @@ namespace rei::core {
 
             [[nodiscard]] auto message(int code) const -> std::string override {
                 switch (static_cast<error_code>(code)) {
-                case error_code::invalid_state:
-                    return "invalid state";
+                case error_code::unknown:
+                    return "unknown";
                 case error_code::invalid_argument:
                     return "invalid argument";
                 case error_code::not_supported:
