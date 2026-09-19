@@ -52,8 +52,5 @@ namespace rei::core {
 
 namespace std {
     // std::error_code compatibility
-    template <> class is_error_code_enum<rei::core::error_code> : public true_type {
-      private:
-      public:
-    };
+    template <> class is_error_code_enum<rei::core::error_code> : public true_type {};
 } // namespace std
