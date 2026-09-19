@@ -1,0 +1,81 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+cc_library(
+    name = "types",
+
+    hdrs = [
+        "error_code.hpp",
+        "transport.hpp",
+    ],
+
+    visibility = ["//visibility:public"]
+)
+
+cc_library(
+    name = "socket_posix",
+    include_prefix = "backend",
+    strip_include_prefix = "backend/posix",
+
+    srcs = ["backend/posix/socket.cpp"],
+    hdrs = ["backend/posix/socket.hpp"],
+
+    target_compatible_with = select({
+        "@platforms//os:linux": [],
+        "@platforms//os:osx": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+
+    deps = [
+        "//rei/core",
+        ":types",
+        "@magic_enum//:magic_enum"
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:private"],
+)
+
+cc_library(
+    name = "socket_windows",
+    include_prefix = "backend",
+    strip_include_prefix = "backend/windows",
+
+    srcs = ["backend/windows/socket.cpp"],
+    hdrs = ["backend/windows/socket.hpp"],
+
+    target_compatible_with = ["@platforms//os:windows"],
+
+    deps = [
+        "//rei/core",
+        ":types",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:private"],
+)
+
+cc_library(
+    name = "net",
+    include_prefix = "net",
+
+    srcs = [],
+
+    hdrs = [
+        "socket.hpp",
+    ],
+
+    deps = [
+        "//rei/core",
+        ":types"
+    ] + select(
+        {
+            "@platforms//os:linux": [":socket_posix"],
+            "@platforms//os:osx": [":socket_posix"],
+            # "@platforms//os:windows": [":socket_windows"],
+        },
+        no_match_error = "rei/net does not support this OS",
+    ),
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"]
+)
