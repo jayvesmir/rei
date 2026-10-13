@@ -1,13 +1,15 @@
 #pragma once
 
+#include <cstdint>
+
 namespace rei::net {
-    enum class transport_protocol {
+    enum class transport_protocol : std::int32_t {
         tcp = 1,
         udp,
         sctp,
     };
 
-    enum class communication_domain {
+    enum class communication_domain : std::int32_t {
         ipv4 = 1,
         ipv6,
     };
