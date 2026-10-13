@@ -13,4 +13,10 @@ namespace rei::net {
         ipv4 = 1,
         ipv6,
     };
+
+    enum class shutdown_mode : std::int32_t {
+        receive,
+        send,
+        both,
+    };
 } // namespace rei::net
