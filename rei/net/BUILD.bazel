@@ -13,7 +13,7 @@ cc_library(
 
 cc_library(
     name = "socket_posix",
-    include_prefix = "backend",
+    include_prefix = "rei/net/backend",
     strip_include_prefix = "backend/posix",
 
     srcs = ["backend/posix/socket.cpp"],
@@ -37,7 +37,7 @@ cc_library(
 
 cc_library(
     name = "socket_windows",
-    include_prefix = "backend",
+    include_prefix = "rei/net/backend",
     strip_include_prefix = "backend/windows",
 
     srcs = ["backend/windows/socket.cpp"],
