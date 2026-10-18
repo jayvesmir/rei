@@ -514,7 +514,13 @@ namespace rei::net::backend {
             return 0;
         }
 
-        return detail::receive_message(m_socket, buffer);
+        auto received = detail::receive_message(m_socket, buffer, _deadline());
+        if (received && *received == 0 && m_protocol == net::transport_protocol::tcp) {
+            return std::unexpected(rei::error{net::make_error_code(net::error_code::connection_closed),
+                                              "peer closed the connection"});
+        }
+
+        return received;
     }
 
     auto socket_backend::send_to(std::span<const std::byte> data, const net::ip_endpoint& remote)
