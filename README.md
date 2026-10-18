@@ -1,4 +1,4 @@
-<img src="https://pbs.twimg.com/media/HUgZ9p9WwAAItax?format=jpg&name=4096x4096" height=500 align="right" alt="@ayanamiplushhh on X"/>
+<img src="https://pbs.twimg.com/media/HUgZ9p9WwAAItax?format=jpg&name=4096x4096" width=33% align="left" alt="@ayanamiplushhh on X"/>
 
 # Rei
 
