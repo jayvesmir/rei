@@ -34,7 +34,8 @@ namespace rei::net {
         }
 
         // For aliasing purposes
-        template <net::communication_domain Domain, net::transport_protocol Protocol> static auto make() -> std::expected<net::socket, rei::error> {
+        template <net::communication_domain Domain, net::transport_protocol Protocol>
+        static auto make() -> std::expected<net::socket, rei::error> {
             return socket::make(Domain, Protocol);
         }
 
