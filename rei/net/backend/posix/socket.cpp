@@ -590,8 +590,6 @@ namespace rei::net::backend {
             return std::unexpected(rei::error{detail::errno_code(), "failed to shut down socket"});
         }
 
-        m_socket = -1;
-
         return {};
     }
 
