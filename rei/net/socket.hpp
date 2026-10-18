@@ -1,7 +1,9 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <expected>
+#include <optional>
 #include <span>
 #include <utility>
 
@@ -48,6 +50,10 @@ namespace rei::net {
         [[nodiscard]] auto domain() const noexcept -> net::communication_domain { return m_backend.domain(); }
         [[nodiscard]] auto protocol() const noexcept -> net::transport_protocol {
             return m_backend.protocol();
+        }
+
+        [[nodiscard]] auto timeout() const noexcept -> std::optional<std::chrono::milliseconds> {
+            return m_backend.timeout();
         }
 
         auto close() -> std::expected<void, rei::error> { return m_backend.close(); }
@@ -108,6 +114,13 @@ namespace rei::net {
 
         auto set_reuse_address(bool enabled) -> std::expected<void, rei::error> {
             return m_backend.set_reuse_address(enabled);
+        }
+
+        // Affects connect, accept, send and receive calls on a blocking socket; std::nullopt waits
+        // indefinitely.
+        auto set_timeout(std::optional<std::chrono::milliseconds> timeout)
+            -> std::expected<void, rei::error> {
+            return m_backend.set_timeout(timeout);
         }
     };
 

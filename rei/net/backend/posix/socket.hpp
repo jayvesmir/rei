@@ -1,8 +1,10 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <span>
 
 #include "rei/core/error.hpp"
@@ -20,9 +22,12 @@ namespace rei::net::backend {
         backend::native_handle m_socket{-1};
         net::communication_domain m_domain{net::communication_domain::ipv4};
         net::transport_protocol m_protocol{net::transport_protocol::tcp};
+        std::optional<std::chrono::milliseconds> m_timeout;
+        bool m_non_blocking{false};
 
         socket_backend(net::communication_domain domain, net::transport_protocol protocol) noexcept;
         auto _configure() -> std::expected<void, rei::error>;
+        [[nodiscard]] auto _deadline() const -> std::optional<std::chrono::steady_clock::time_point>;
 
       public:
         socket_backend() = default;
@@ -40,6 +45,9 @@ namespace rei::net::backend {
         [[nodiscard]] auto native_handle() const noexcept -> native_handle { return m_socket; }
         [[nodiscard]] auto domain() const noexcept -> net::communication_domain { return m_domain; }
         [[nodiscard]] auto protocol() const noexcept -> net::transport_protocol { return m_protocol; }
+        [[nodiscard]] auto timeout() const noexcept -> std::optional<std::chrono::milliseconds> {
+            return m_timeout;
+        }
 
         auto connect(const net::ip_endpoint& endpoint) -> std::expected<void, rei::error>;
 
@@ -61,5 +69,6 @@ namespace rei::net::backend {
 
         auto set_non_blocking(bool enabled) -> std::expected<void, rei::error>;
         auto set_reuse_address(bool enabled) -> std::expected<void, rei::error>;
+        auto set_timeout(std::optional<std::chrono::milliseconds> timeout) -> std::expected<void, rei::error>;
     };
 } // namespace rei::net::backend

@@ -1,8 +1,12 @@
+#include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <format>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -10,6 +14,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <unistd.h>
@@ -17,6 +22,7 @@
 #include "magic_enum/magic_enum.hpp"
 
 #include "rei/net/backend/socket.hpp"
+#include "rei/net/error_code.hpp"
 
 namespace rei::net::backend::detail {
     namespace {
@@ -59,6 +65,44 @@ namespace rei::net::backend::detail {
 
         auto errno_code() -> std::error_code {
             return {errno, std::generic_category()};
+        }
+
+        auto transfer_error_code() -> std::error_code {
+            if (errno == ECONNRESET || errno == EPIPE) {
+                return net::make_error_code(net::error_code::connection_closed);
+            }
+
+            return detail::errno_code();
+        }
+
+        auto should_retry(bool waiting) -> bool {
+            return errno == EINTR || (waiting && (errno == EAGAIN || errno == EWOULDBLOCK));
+        }
+
+        auto wait_ready(backend::native_handle descriptor, short events,
+                        std::optional<std::chrono::steady_clock::time_point> deadline)
+            -> std::expected<void, rei::error> {
+            if (!deadline) {
+                return {};
+            }
+
+            pollfd target{.fd = descriptor, .events = events, .revents = 0};
+            while (true) {
+                const auto remaining = std::chrono::ceil<std::chrono::milliseconds>(
+                    *deadline - std::chrono::steady_clock::now());
+                const auto result =
+                    ::poll(&target, 1, static_cast<int>(std::max<std::int64_t>(remaining.count(), 0)));
+                if (result > 0) {
+                    return {};
+                }
+                if (result == 0) {
+                    return std::unexpected(rei::error{net::make_error_code(net::error_code::timed_out),
+                                                      "socket operation timed out"});
+                }
+                if (errno != EINTR) {
+                    return std::unexpected(rei::error{detail::errno_code(), "failed to wait for socket"});
+                }
+            }
         }
 
         // getaddrinfo and getnameinfo report EAI_SYSTEM failures through errno.
@@ -145,6 +189,7 @@ namespace rei::net::backend::detail {
         }
 
         auto receive_message(backend::native_handle descriptor, std::span<std::byte> buffer,
+                             std::optional<std::chrono::steady_clock::time_point> deadline,
                              detail::socket_address* sender = nullptr)
             -> std::expected<std::size_t, rei::error> {
             iovec data{
@@ -162,10 +207,16 @@ namespace rei::net::backend::detail {
 
             ssize_t result{};
             do {
-                result = ::recvmsg(descriptor, &message, 0);
-            } while (result == -1 && errno == EINTR);
+                auto ready = detail::wait_ready(descriptor, POLLIN, deadline);
+                if (!ready) {
+                    return std::unexpected(ready.error());
+                }
+
+                result = ::recvmsg(descriptor, &message, deadline ? MSG_DONTWAIT : 0);
+            } while (result == -1 && detail::should_retry(deadline.has_value()));
             if (result == -1) {
-                return std::unexpected(rei::error{detail::errno_code(), "failed to receive socket data"});
+                return std::unexpected(
+                    rei::error{detail::transfer_error_code(), "failed to receive socket data"});
             }
             if ((message.msg_flags & MSG_TRUNC) != 0) {
                 return std::unexpected(rei::error{std::make_error_code(std::errc::message_size),
@@ -177,6 +228,63 @@ namespace rei::net::backend::detail {
             }
 
             return static_cast<std::size_t>(result);
+        }
+
+        // A null receiver sends on the connected peer.
+        auto send_message(backend::native_handle descriptor, std::span<const std::byte> data,
+                          const detail::socket_address* receiver,
+                          std::optional<std::chrono::steady_clock::time_point> deadline)
+            -> std::expected<std::size_t, rei::error> {
+            const auto* name =
+                receiver != nullptr ? reinterpret_cast<const sockaddr*>(&receiver->storage) : nullptr;
+            const socklen_t size = receiver != nullptr ? receiver->size : 0;
+
+            ssize_t result{};
+            do {
+                auto ready = detail::wait_ready(descriptor, POLLOUT, deadline);
+                if (!ready) {
+                    return std::unexpected(ready.error());
+                }
+
+                result = ::sendto(descriptor, data.data(), data.size(),
+                                  detail::send_flags | (deadline ? MSG_DONTWAIT : 0), name, size);
+            } while (result == -1 && detail::should_retry(deadline.has_value()));
+            if (result == -1) {
+                return std::unexpected(
+                    rei::error{detail::transfer_error_code(), "failed to send socket data"});
+            }
+
+            return static_cast<std::size_t>(result);
+        }
+
+        // Expects a non-blocking descriptor.
+        auto connect_until(backend::native_handle descriptor, const detail::socket_address& address,
+                           std::chrono::steady_clock::time_point deadline)
+            -> std::expected<void, rei::error> {
+            if (::connect(descriptor, reinterpret_cast<const sockaddr*>(&address.storage), address.size) ==
+                0) {
+                return {};
+            }
+            if (errno != EINPROGRESS && errno != EINTR) {
+                return std::unexpected(rei::error{detail::errno_code(), "failed to connect socket"});
+            }
+
+            auto ready = detail::wait_ready(descriptor, POLLOUT, deadline);
+            if (!ready) {
+                return std::unexpected(ready.error());
+            }
+
+            int error{};
+            socklen_t size = sizeof(error);
+            if (::getsockopt(descriptor, SOL_SOCKET, SO_ERROR, &error, &size) == -1) {
+                return std::unexpected(rei::error{detail::errno_code(), "failed to get connection status"});
+            }
+            if (error != 0) {
+                return std::unexpected(
+                    rei::error{std::error_code(error, std::generic_category()), "failed to connect socket"});
+            }
+
+            return {};
         }
     } // namespace
 } // namespace rei::net::backend::detail
@@ -197,8 +305,8 @@ namespace rei::net::backend {
         : m_domain(domain), m_protocol(protocol) {}
 
     socket_backend::socket_backend(socket_backend&& other) noexcept
-        : m_socket(std::exchange(other.m_socket, -1)), m_domain(other.m_domain),
-          m_protocol(other.m_protocol) {}
+        : m_socket(std::exchange(other.m_socket, -1)), m_domain(other.m_domain), m_protocol(other.m_protocol),
+          m_timeout(other.m_timeout), m_non_blocking(other.m_non_blocking) {}
 
     auto socket_backend::operator=(socket_backend&& other) noexcept -> socket_backend& {
         if (this != &other) {
@@ -209,6 +317,8 @@ namespace rei::net::backend {
             m_socket = std::exchange(other.m_socket, -1);
             m_domain = other.m_domain;
             m_protocol = other.m_protocol;
+            m_timeout = other.m_timeout;
+            m_non_blocking = other.m_non_blocking;
         }
 
         return *this;
@@ -231,6 +341,14 @@ namespace rei::net::backend {
 #endif
 
         return this->set_non_blocking(false);
+    }
+
+    auto socket_backend::_deadline() const -> std::optional<std::chrono::steady_clock::time_point> {
+        if (!m_timeout || m_non_blocking) {
+            return std::nullopt;
+        }
+
+        return std::chrono::steady_clock::now() + *m_timeout;
     }
 
     auto socket_backend::make(net::communication_domain domain, net::transport_protocol protocol)
@@ -283,11 +401,28 @@ namespace rei::net::backend {
             return std::unexpected(address.error());
         }
 
-        if (::connect(m_socket, reinterpret_cast<const sockaddr*>(&address->storage), address->size) == -1) {
-            return std::unexpected(rei::error{detail::errno_code(), "failed to connect socket"});
+        const auto deadline = _deadline();
+        if (!deadline) {
+            if (::connect(m_socket, reinterpret_cast<const sockaddr*>(&address->storage), address->size) ==
+                -1) {
+                return std::unexpected(rei::error{detail::errno_code(), "failed to connect socket"});
+            }
+
+            return {};
         }
 
-        return {};
+        auto non_blocking = set_non_blocking(true);
+        if (!non_blocking) {
+            return non_blocking;
+        }
+
+        auto connected = detail::connect_until(m_socket, *address, *deadline);
+        auto restored = set_non_blocking(false);
+        if (!connected) {
+            return connected;
+        }
+
+        return restored;
     }
 
     auto socket_backend::bind(const net::ip_endpoint& local) -> std::expected<void, rei::error> {
@@ -332,8 +467,19 @@ namespace rei::net::backend {
                                               "accept requires a TCP socket"});
         }
 
+        if (!is_open()) {
+            return std::unexpected(rei::error{std::make_error_code(std::errc::bad_file_descriptor),
+                                              "cannot accept on a closed socket"});
+        }
+
+        const auto deadline = _deadline();
         backend::socket_backend out{m_domain, m_protocol};
         do {
+            auto ready = detail::wait_ready(m_socket, POLLIN, deadline);
+            if (!ready) {
+                return std::unexpected(ready.error());
+            }
+
             out.m_socket = ::accept(m_socket, nullptr, nullptr);
         } while (!out.is_open() && errno == EINTR);
 
@@ -350,15 +496,12 @@ namespace rei::net::backend {
     }
 
     auto socket_backend::send(std::span<const std::byte> data) -> std::expected<std::size_t, rei::error> {
-        ssize_t res{};
-        do {
-            res = ::send(m_socket, data.data(), data.size(), detail::send_flags);
-        } while (res == -1 && errno == EINTR);
-        if (res == -1) {
-            return std::unexpected(rei::error{detail::errno_code(), "failed to send socket data"});
+        if (!is_open()) {
+            return std::unexpected(rei::error{std::make_error_code(std::errc::bad_file_descriptor),
+                                              "cannot send on a closed socket"});
         }
 
-        return static_cast<std::size_t>(res);
+        return detail::send_message(m_socket, data, nullptr, _deadline());
     }
 
     auto socket_backend::receive(std::span<std::byte> buffer) -> std::expected<std::size_t, rei::error> {
@@ -391,16 +534,7 @@ namespace rei::net::backend {
             return std::unexpected(address.error());
         }
 
-        ssize_t result{};
-        do {
-            result = ::sendto(m_socket, data.data(), data.size(), detail::send_flags,
-                              reinterpret_cast<const sockaddr*>(&address->storage), address->size);
-        } while (result == -1 && errno == EINTR);
-        if (result == -1) {
-            return std::unexpected(rei::error{detail::errno_code(), "failed to send datagram"});
-        }
-
-        return static_cast<std::size_t>(result);
+        return detail::send_message(m_socket, data, &*address, _deadline());
     }
 
     auto socket_backend::receive_from(std::span<std::byte> buffer)
@@ -410,8 +544,13 @@ namespace rei::net::backend {
                                               "receive_from requires a UDP socket"});
         }
 
+        if (!is_open()) {
+            return std::unexpected(rei::error{std::make_error_code(std::errc::bad_file_descriptor),
+                                              "cannot receive on a closed socket"});
+        }
+
         detail::socket_address address{};
-        auto received = detail::receive_message(m_socket, buffer, &address);
+        auto received = detail::receive_message(m_socket, buffer, _deadline(), &address);
         if (!received) {
             return std::unexpected(received.error());
         }
@@ -479,6 +618,8 @@ namespace rei::net::backend {
             return std::unexpected(rei::error{detail::errno_code(), "failed to set socket blocking mode"});
         }
 
+        m_non_blocking = enabled;
+
         return {};
     }
 
@@ -487,6 +628,18 @@ namespace rei::net::backend {
         if (::setsockopt(m_socket, SOL_SOCKET, SO_REUSEADDR, &value, sizeof(value)) == -1) {
             return std::unexpected(rei::error{detail::errno_code(), "failed to set socket address reuse"});
         }
+
+        return {};
+    }
+
+    auto socket_backend::set_timeout(std::optional<std::chrono::milliseconds> timeout)
+        -> std::expected<void, rei::error> {
+        if (timeout && (timeout->count() < 0 || timeout->count() > std::numeric_limits<int>::max())) {
+            return std::unexpected(rei::error{std::make_error_code(std::errc::invalid_argument),
+                                              "socket timeout is out of range"});
+        }
+
+        m_timeout = timeout;
 
         return {};
     }
