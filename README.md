@@ -2,7 +2,7 @@
 
 # Rei
 
-This is meant to be a [boost](www.boost.org)-like monolithic library. I'm adapting stuff into it from my private libraries with nicer packaging via bazel.
+This is meant to be a [boost](https://www.boost.org)-like monolithic library. I'm adapting stuff into it from my private libraries with nicer packaging via bazel.
 
 ## Using Rei
 
