@@ -173,9 +173,17 @@ namespace rei::net::backend::detail {
 
             std::uint16_t port;
             if (address.storage.ss_family == AF_INET) {
+#if defined(__APPLE__)
+                port = ntohs(reinterpret_cast<const sockaddr_in*>(&address.storage)->sin_port);
+#else
                 port = ::ntohs(reinterpret_cast<const sockaddr_in*>(&address.storage)->sin_port);
+#endif
             } else if (address.storage.ss_family == AF_INET6) {
+#if defined(__APPLE__)
+                port = ntohs(reinterpret_cast<const sockaddr_in6*>(&address.storage)->sin6_port);
+#else
                 port = ::ntohs(reinterpret_cast<const sockaddr_in6*>(&address.storage)->sin6_port);
+#endif
             } else {
                 return std::unexpected(
                     rei::error{std::make_error_code(std::errc::address_family_not_supported),
