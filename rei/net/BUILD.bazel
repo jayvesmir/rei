@@ -57,6 +57,7 @@ cc_library(
 
 cc_library(
     name = "socket",
+    include_prefix = "net",
 
     srcs = [],
     hdrs = ["socket.hpp"],
