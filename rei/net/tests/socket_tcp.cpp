@@ -101,12 +101,14 @@ namespace rei::net::tests {
     }
 
     TEST(socket_tcp, connect_to_a_port_without_listener_is_refused) {
-        // A bound socket that never listens keeps its port reserved and refuses connections.
-        auto reserved = net::socket::make(net::communication_domain::ipv4, net::transport_protocol::tcp);
-        ASSERT_TRUE(reserved) << reserved.error();
-        ASSERT_TRUE(reserved->bind(loopback(net::communication_domain::ipv4)));
-        auto target = reserved->local_endpoint();
+        // Closing a bound socket frees its port, so a connect there is reset. A bound socket that
+        // never listens isn't enough: macOS silently drops the SYN instead of refusing it.
+        auto closed = net::socket::make(net::communication_domain::ipv4, net::transport_protocol::tcp);
+        ASSERT_TRUE(closed) << closed.error();
+        ASSERT_TRUE(closed->bind(tests::loopback(net::communication_domain::ipv4)));
+        auto target = closed->local_endpoint();
         ASSERT_TRUE(target) << target.error();
+        ASSERT_TRUE(closed->close());
 
         auto blocking = net::socket::make(net::communication_domain::ipv4, net::transport_protocol::tcp);
         ASSERT_TRUE(blocking) << blocking.error();
@@ -118,13 +120,17 @@ namespace rei::net::tests {
         EXPECT_TRUE(tests::has_error(timed->connect(*target), std::errc::connection_refused));
 
         // A timed connect to a live listener leaves a usable blocking connection behind.
-        ASSERT_TRUE(reserved->listen());
+        auto listener = net::socket::make(net::communication_domain::ipv4, net::transport_protocol::tcp);
+        ASSERT_TRUE(listener) << listener.error();
+        ASSERT_TRUE(listener->bind(tests::loopback(net::communication_domain::ipv4)));
+        ASSERT_TRUE(listener->listen());
+
         auto client = net::socket::make(net::communication_domain::ipv4, net::transport_protocol::tcp);
         ASSERT_TRUE(client) << client.error();
         ASSERT_TRUE(client->set_timeout(1s));
-        ASSERT_TRUE(client->connect(*target));
+        ASSERT_TRUE(client->connect(listener->local_endpoint().value()));
 
-        auto accepted = reserved->accept();
+        auto accepted = listener->accept();
         ASSERT_TRUE(accepted) << accepted.error();
         ASSERT_TRUE(client->send(tests::as_bytes("ping")));
 
@@ -135,6 +141,6 @@ namespace rei::net::tests {
         // Non-blocking sockets ignore timeouts, so timing out here shows connect restored blocking mode.
         std::array<std::byte, 4> buffer{};
         ASSERT_TRUE(client->set_timeout(20ms));
-        EXPECT_TRUE(has_error(client->receive(buffer), net::error_code::timed_out));
+        EXPECT_TRUE(tests::has_error(client->receive(buffer), net::error_code::timed_out));
     }
 } // namespace rei::net::tests
