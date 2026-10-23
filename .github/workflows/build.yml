@@ -1,0 +1,48 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.compiler }} / ${{ matrix.compilation_mode }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        compiler: [gcc, clang]
+        compilation_mode: [dbg, opt]
+        exclude:
+          # gcc on macOS is just Apple Clang
+          - os: macos-latest
+            compiler: gcc
+
+    env:
+      CC: ${{ matrix.compiler }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build
+        run: bazel build --compilation_mode=${{ matrix.compilation_mode }} //rei/...
+
+      - name: Test
+        run: bazel test --compilation_mode=${{ matrix.compilation_mode }} --test_output=all //rei/...
+
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        # v6+ can't upload to act's local artifact server yet (nektos/act#6114)
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.compilation_mode }}
+          path: |
+            bazel-testlogs/**/test.xml
+            bazel-testlogs/**/test.log
