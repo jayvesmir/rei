@@ -56,14 +56,10 @@ cc_library(
 )
 
 cc_library(
-    name = "net",
-    include_prefix = "net",
+    name = "socket",
 
     srcs = [],
-
-    hdrs = [
-        "socket.hpp",
-    ],
+    hdrs = ["socket.hpp"],
 
     deps = [
         "//rei/core",
@@ -76,6 +72,21 @@ cc_library(
         },
         no_match_error = "rei/net does not support this OS",
     ),
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"]
+)
+
+cc_library(
+    name = "net",
+    include_prefix = "net",
+
+    srcs = [],
+    hdrs = [],
+
+    deps = [
+        "//rei/net:socket",
+    ],
 
     cxxopts = ["-std=c++23"],
     visibility = ["//visibility:public"]
