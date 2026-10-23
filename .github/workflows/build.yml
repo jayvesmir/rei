@@ -1,0 +1,69 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.arch }} / ${{ matrix.compiler }}
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [linux, macos]
+        arch: [x64, arm64]
+        compiler: [gcc, clang]
+        exclude:
+          # gcc on macOS is just Apple Clang
+          - os: macos
+            compiler: gcc
+        include:
+          - { os: linux, arch: x64, runner: ubuntu-24.04 }
+          - { os: linux, arch: arm64, runner: ubuntu-24.04-arm }
+          - { os: macos, arch: x64, runner: macos-26-intel }
+          - { os: macos, arch: arm64, runner: macos-26 }
+
+    env:
+      CC: ${{ matrix.compiler }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # The Ubuntu images only ship up to GCC 14 and Clang 18. Local act runs use the host's compilers instead.
+      - name: Install GCC 16
+        if: ${{ matrix.os == 'linux' && matrix.compiler == 'gcc' && !env.ACT }}
+        run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get install -y g++-16
+          sudo ln -sf /usr/bin/gcc-16 /usr/local/bin/gcc
+
+      - name: Install Clang 23
+        if: ${{ matrix.os == 'linux' && matrix.compiler == 'clang' && !env.ACT }}
+        run: |
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc > /dev/null
+          sudo add-apt-repository -y "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main"
+          sudo apt-get install -y clang-23
+          sudo ln -sf /usr/bin/clang-23 /usr/local/bin/clang
+
+      - name: Build
+        run: bazel build //rei/...
+
+      - name: Test
+        run: bazel test --test_output=all //rei/...
+
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        # v6+ can't upload to act's local artifact server yet (nektos/act#6114)
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.compiler }}
+          path: |
+            bazel-testlogs/**/test.xml
+            bazel-testlogs/**/test.log
