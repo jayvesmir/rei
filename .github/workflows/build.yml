@@ -11,19 +11,24 @@ permissions:
 
 jobs:
   build:
-    name: ${{ matrix.os }} / ${{ matrix.compiler }} / ${{ matrix.compilation_mode }}
-    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} / ${{ matrix.arch }} / ${{ matrix.compiler }}
+    runs-on: ${{ matrix.runner }}
 
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [linux, macos]
+        arch: [x64, arm64]
         compiler: [gcc, clang]
-        compilation_mode: [dbg, opt]
         exclude:
           # gcc on macOS is just Apple Clang
-          - os: macos-latest
+          - os: macos
             compiler: gcc
+        include:
+          - { os: linux, arch: x64, runner: ubuntu-24.04 }
+          - { os: linux, arch: arm64, runner: ubuntu-24.04-arm }
+          - { os: macos, arch: x64, runner: macos-26-intel }
+          - { os: macos, arch: arm64, runner: macos-26 }
 
     env:
       CC: ${{ matrix.compiler }}
@@ -32,17 +37,17 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Build
-        run: bazel build --compilation_mode=${{ matrix.compilation_mode }} //rei/...
+        run: bazel build //rei/...
 
       - name: Test
-        run: bazel test --compilation_mode=${{ matrix.compilation_mode }} --test_output=all //rei/...
+        run: bazel test --test_output=all //rei/...
 
       - name: Upload test results
         if: ${{ !cancelled() }}
         # v6+ can't upload to act's local artifact server yet (nektos/act#6114)
         uses: actions/upload-artifact@v5
         with:
-          name: test-results-${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.compilation_mode }}
+          name: test-results-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.compiler }}
           path: |
             bazel-testlogs/**/test.xml
             bazel-testlogs/**/test.log
