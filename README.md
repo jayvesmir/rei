@@ -24,6 +24,9 @@ If you want to link all parts of Rei at once, you can use the `@rei//rei:rei` ta
 
 For a complete list of packages please look inside the [rei](rei/) directory.
 
+## Dependencies
+- [magic_enum](https://github.com/Neargye/magic_enum)
+
 ## Documentation
 
 I don't enjoy writing documentation. The code tries its best to explain itself, and has comments where needed.  
