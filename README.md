@@ -37,4 +37,4 @@ You can use [bcc](https://github.com/kiron1/bazel-compile-commands) or any other
 
 A large portion of the code in this repository is generated using coding agents (mainly using the [Claude Code](https://claude.com/product/claude-code) harness) pulling it from my private projects and structuring it into this repository.  
 
-I still look at and test the code written by the agents to verify it's functionality.
+I still look at and test the code written by the agents to verify it's functionality ***and merit***.
