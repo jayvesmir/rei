@@ -1,12 +1,36 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
 cc_library(
-    name = "core",
+    name = "error",
     include_prefix = "core",
 
     hdrs = [
         "error.hpp",
         "error_code.hpp",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "utf8",
+    include_prefix = "core",
+
+    srcs = ["utf8/utf8.cpp"],
+    hdrs = ["utf8.hpp"],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "core",
+    include_prefix = "core",
+
+    deps = [
+        ":error",
+        ":utf8",
     ],
 
     cxxopts = ["-std=c++23"],
