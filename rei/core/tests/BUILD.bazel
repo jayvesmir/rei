@@ -5,12 +5,17 @@ cc_test(
     size = "small",
 
     srcs = [
+        "idna.cpp",
         "url.cpp",
         "utf8.cpp",
     ],
 
+    data = ["@idna_test_v2//file"],
+    env = {"IDNA_TEST_V2": "$(rootpath @idna_test_v2//file)"},
+
     deps = [
         "//rei/core",
+        "//rei/core:idna",
         "@googletest//:gtest_main",
     ],
 

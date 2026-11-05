@@ -25,3 +25,12 @@ idna_tables(
         "ucd/extracted/DerivedJoiningType.txt": "e2408ff2c92b175b0f7bf62c989bbb54c7b077528fe31f8d69b96fa09e7d61ed",
     },
 )
+
+http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
+
+http_file(
+    name = "idna_test_v2",
+    url = "https://www.unicode.org/Public/18.0.0/idna/IdnaTestV2.txt",
+    sha256 = "0236b75c5b20dfd857b3b5cf75509887959d6ab00d6c7bda9b7dc3df518c1fde",
+    dev_dependency = True,
+)
