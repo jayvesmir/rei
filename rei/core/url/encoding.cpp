@@ -89,6 +89,10 @@ namespace rei::core::detail {
     }
 
     auto percent_decode(std::string_view input) -> std::string {
+        if (!input.contains('%')) {
+            return std::string{input};
+        }
+
         std::string output;
         for (auto i = 0uz; i < input.size(); i++) {
             auto hex = input.substr(i + 1, 2);

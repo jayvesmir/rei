@@ -21,13 +21,24 @@
 
 namespace rei::core::detail {
     namespace {
-        auto is_forbidden_host_code_point(char unit) -> bool {
+        constexpr auto is_forbidden_host_code_point(char unit) -> bool {
             return unit == '\0' || std::string_view{"\t\n\r #/:<>?@[\\]^|"}.contains(unit);
         }
 
+        // Every code unit of a domain is checked, so the answers are looked up instead of searched for.
+        constexpr auto forbidden_domain_code_points = [] -> std::array<bool, 256> {
+            std::array<bool, 256> table{};
+            for (auto byte = 0uz; byte < table.size(); byte++) {
+                auto unit = static_cast<char>(byte);
+                table[byte] =
+                    is_forbidden_host_code_point(unit) || byte <= 0x1F || unit == '%' || byte == 0x7F;
+            }
+
+            return table;
+        }();
+
         auto is_forbidden_domain_code_point(char unit) -> bool {
-            auto byte = static_cast<std::uint8_t>(unit);
-            return is_forbidden_host_code_point(unit) || byte <= 0x1F || unit == '%' || byte == 0x7F;
+            return forbidden_domain_code_points[static_cast<std::uint8_t>(unit)];
         }
 
         auto parse_ipv4_number(std::string_view input) -> std::optional<std::uint64_t> {
@@ -320,15 +331,15 @@ namespace rei::core::detail {
         }
 
         auto domain = detail::percent_decode(input);
-        if (!utf8::is_valid(domain)) {
-            return std::unexpected(rei::error{core::make_error_code(core::error_code::invalid_argument),
-                                              "domain is not valid UTF-8"});
-        }
-
         if (std::ranges::all_of(domain,
                                 [](char unit) -> bool { return static_cast<std::uint8_t>(unit) <= 0x7F; })) {
             std::ranges::transform(domain, domain.begin(), to_ascii_lower);
         } else {
+            if (!utf8::is_valid(domain)) {
+                return std::unexpected(rei::error{core::make_error_code(core::error_code::invalid_argument),
+                                                  "domain is not valid UTF-8"});
+            }
+
             auto ascii = idna::to_ascii(domain);
             if (!ascii) {
                 return std::unexpected(ascii.error());
