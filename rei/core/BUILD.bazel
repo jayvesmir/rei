@@ -58,6 +58,7 @@ cc_library(
 
     deps = [
         ":error",
+        ":url",
         ":utf8",
     ],
 
