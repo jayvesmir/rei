@@ -31,7 +31,7 @@ namespace rei::core::tests {
     }
 
     TEST(url, parsing_normalizes_every_component) {
-        auto parsed = core::url::make("\t HTTPS://User:Pa ss@EXAMPLE.com:443/a/./b/../c d?q=1 2'#frag`\n");
+        auto parsed = core::url::make("\t HTTPS://User:Pa ss@EXAM\nPLE.com:443/a/./b/../c d?q=1 2'#fr\tag`\n");
         ASSERT_TRUE(parsed) << parsed.error();
 
         EXPECT_EQ(parsed->scheme(), "https");

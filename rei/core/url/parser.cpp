@@ -94,9 +94,15 @@ namespace rei::core::detail {
             }
         }
 
-        auto input = std::ranges::to<std::string>(raw_input | std::views::filter([](char unit) -> bool {
-                                                      return unit != '\t' && unit != '\n' && unit != '\r';
-                                                  }));
+        // Tabs and newlines are rare, so the input is only copied when there are some to remove.
+        std::string filtered;
+        std::string_view input = raw_input;
+        if (raw_input.find_first_of("\t\n\r") != std::string_view::npos) {
+            filtered = std::ranges::to<std::string>(raw_input | std::views::filter([](char unit) -> bool {
+                                                        return unit != '\t' && unit != '\n' && unit != '\r';
+                                                    }));
+            input = filtered;
+        }
 
         const auto size = std::ssize(input);
         auto state = state_override.value_or(parse_state::scheme_start);
@@ -114,7 +120,7 @@ namespace rei::core::detail {
         };
 
         auto remaining = [&] -> std::string_view {
-            return std::string_view{input}.substr(static_cast<std::size_t>(std::min(pointer + 1, size)));
+            return input.substr(static_cast<std::size_t>(std::min(pointer + 1, size)));
         };
         auto copy_authority = [&] -> void {
             url.username = base->username;
@@ -425,8 +431,7 @@ namespace rei::core::detail {
                         state = parse_state::fragment;
                     } else if (unit != eof) {
                         url.query.reset();
-                        if (!detail::starts_with_windows_drive_letter(
-                                std::string_view{input}.substr(pointer))) {
+                        if (!detail::starts_with_windows_drive_letter(input.substr(pointer))) {
                             detail::shorten_path(url);
                         } else {
                             url.path.clear();
@@ -447,8 +452,7 @@ namespace rei::core::detail {
                 } else {
                     if (base != nullptr && base->scheme == "file") {
                         url.host = base->host;
-                        if (!detail::starts_with_windows_drive_letter(
-                                std::string_view{input}.substr(pointer)) &&
+                        if (!detail::starts_with_windows_drive_letter(input.substr(pointer)) &&
                             detail::first_segment_is_drive_letter(base->path)) {
                             url.path += base->path.substr(0, 3);
                         }
