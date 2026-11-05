@@ -86,7 +86,7 @@ cc_library(
     hdrs = [],
 
     deps = [
-        "//rei/net:socket",
+        ":socket",
     ],
 
     cxxopts = ["-std=c++23"],

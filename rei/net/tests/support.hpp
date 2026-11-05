@@ -14,14 +14,6 @@
 #include "rei/net/endpoint.hpp"
 #include "rei/net/socket.hpp"
 
-namespace rei {
-    // Lets GTest show which error a failed std::expected carried.
-    inline auto operator<<(std::ostream& out, const rei::error& error) -> std::ostream& {
-        return out << error.code().category().name() << ':' << error.code().value() << " \""
-                   << error.code().message() << "\" " << error.detail();
-    }
-} // namespace rei
-
 namespace rei::net {
     inline auto operator<<(std::ostream& out, const net::ip_endpoint& endpoint) -> std::ostream& {
         return out << '[' << endpoint.address << "]:" << endpoint.port;

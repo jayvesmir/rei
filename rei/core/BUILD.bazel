@@ -5,6 +5,7 @@ cc_library(
     include_prefix = "core",
 
     hdrs = [
+        "tests.hpp",
         "error.hpp",
         "error_code.hpp",
     ],
