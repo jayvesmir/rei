@@ -11,6 +11,7 @@
 #include "gtest/gtest.h"
 
 #include "rei/core/error.hpp"
+#include "rei/core/tests.hpp"
 #include "rei/net/endpoint.hpp"
 #include "rei/net/socket.hpp"
 
