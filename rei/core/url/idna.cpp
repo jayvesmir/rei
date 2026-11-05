@@ -434,7 +434,7 @@ namespace rei::core::detail::idna {
             }
 
             // Rule 1
-            auto classes = label | std::views::transform(bidi_class_of) | std::ranges::to<std::vector>();
+            auto classes = std::ranges::to<std::vector>(label | std::views::transform(bidi_class_of));
             auto is_rtl = classes.front() == right_to_left || classes.front() == arabic_letter;
             if (!is_rtl && classes.front() != left_to_right) {
                 return false;

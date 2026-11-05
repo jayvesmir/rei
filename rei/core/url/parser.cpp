@@ -94,10 +94,9 @@ namespace rei::core::detail {
             }
         }
 
-        auto input = raw_input | std::views::filter([](char unit) -> bool {
-                         return unit != '\t' && unit != '\n' && unit != '\r';
-                     }) |
-                     std::ranges::to<std::string>();
+        auto input = std::ranges::to<std::string>(raw_input | std::views::filter([](char unit) -> bool {
+                                                      return unit != '\t' && unit != '\n' && unit != '\r';
+                                                  }));
 
         const auto size = std::ssize(input);
         auto state = state_override.value_or(parse_state::scheme_start);

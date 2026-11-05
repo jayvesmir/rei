@@ -140,7 +140,7 @@ namespace rei::core::detail {
         }
 
         detail::url_record url;
-        url.scheme = parts.scheme | std::views::transform(to_ascii_lower) | std::ranges::to<std::string>();
+        url.scheme = std::ranges::to<std::string>(parts.scheme | std::views::transform(to_ascii_lower));
         if (parts.host) {
             if (auto result = detail::write_host(url, *parts.host); !result) {
                 return std::unexpected(result.error());
