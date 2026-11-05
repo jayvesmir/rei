@@ -58,6 +58,11 @@ namespace rei::core::detail::idna {
 
         template <typename Range>
         auto find_range(std::span<const Range> table, char32_t code_point) -> const Range* {
+            // Sparse tables like the combining classes start well past ASCII, so most lookups end here.
+            if (table.empty() || code_point < table.front().first) {
+                return nullptr;
+            }
+
             auto next = std::ranges::upper_bound(table, code_point, {}, &Range::first);
             if (next == table.begin() || std::prev(next)->last < code_point) {
                 return nullptr;
@@ -464,11 +469,9 @@ namespace rei::core::detail::idna {
                    std::ranges::contains(ltr_ends, last);
         }
 
-        // UTS #46 section 4.1 for the flags to_ascii uses, except CheckBidi, which needs the whole domain
+        // UTS #46 section 4.1 for the flags to_ascii uses, except NFC, which to_ascii only has to check for
+        // decoded labels, and CheckBidi, which needs the whole domain
         auto validate(std::u32string_view label) -> std::expected<void, rei::error> {
-            if (idna::normalize(label) != label) {
-                return idna::invalid("label isn't in NFC");
-            }
             if (label.starts_with(U"xn--")) {
                 return idna::invalid("Punycode label decodes to another Punycode label");
             }
@@ -505,6 +508,10 @@ namespace rei::core::detail::idna {
                 }
                 if (std::ranges::all_of(*decoded, is_ascii)) {
                     return idna::invalid("Punycode label decodes to an empty or ASCII label");
+                }
+                // The other labels are already in NFC, since they were normalized as part of `text`.
+                if (idna::normalize(*decoded) != *decoded) {
+                    return idna::invalid("label isn't in NFC");
                 }
 
                 label = std::move(*decoded);
