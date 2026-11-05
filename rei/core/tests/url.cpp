@@ -55,6 +55,19 @@ namespace rei::core::tests {
         for (const auto& [input, host, href] : {
                  host_case{.input = "http://0x7F.1/", .host = "127.0.0.1", .href = "http://127.0.0.1/"},
                  host_case{
+                     .input = "http://M\xC3\xBCnchen.DE/",
+                     .host = "xn--mnchen-3ya.de",
+                     .href = "http://xn--mnchen-3ya.de/",
+                 },
+                 // IDNA maps full-width digits to ASCII before the IPv4 check.
+                 host_case{
+                     .input = "http://\xEF\xBC\x91\xEF\xBC\x92\xEF\xBC\x97.0.0.1/",
+                     .host = "127.0.0.1",
+                     .href = "http://127.0.0.1/",
+                 },
+                 // ASCII domains are only lowercased, even with invalid Punycode.
+                 host_case{.input = "http://XN--A/", .host = "xn--a", .href = "http://xn--a/"},
+                 host_case{
                      .input = "http://[0:0:0:0:0:FFFF:192.168.0.1]/",
                      .host = "[::ffff:c0a8:1]",
                      .href = "http://[::ffff:c0a8:1]/",
@@ -118,8 +131,9 @@ namespace rei::core::tests {
             EXPECT_TRUE(tests::has_error(core::url::make(input), std::errc::invalid_argument)) << input;
         }
 
-        // Non-ASCII domains need IDNA, which isn't implemented, while opaque hosts are just percent-encoded.
-        EXPECT_TRUE(tests::has_error(core::url::make("http://m\xC3\xBCnchen.de/"), std::errc::not_supported));
+        // Once a domain is non-ASCII, IDNA validates its Punycode labels too, while opaque hosts are just
+        // percent-encoded.
+        EXPECT_TRUE(tests::has_error(core::url::make("http://xn--a.\xC3\x9F/"), std::errc::invalid_argument));
 
         auto opaque = core::url::make("sc://m\xC3\xBCnchen.de/");
         ASSERT_TRUE(opaque) << opaque.error();

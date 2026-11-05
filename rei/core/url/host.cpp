@@ -16,6 +16,7 @@
 
 #include "rei/core/url.hpp"
 #include "rei/core/url/detail.hpp"
+#include "rei/core/url/idna.hpp"
 #include "rei/core/utf8.hpp"
 
 namespace rei::core::detail {
@@ -324,14 +325,18 @@ namespace rei::core::detail {
                                               "domain is not valid UTF-8"});
         }
 
-        if (std::ranges::any_of(domain,
-                                [](char unit) -> bool { return static_cast<std::uint8_t>(unit) > 0x7F; })) {
-            return std::unexpected(
-                rei::error{core::make_error_code(core::error_code::not_supported),
-                           "non-ASCII domains need IDNA processing, which isn't implemented"});
+        if (std::ranges::all_of(domain,
+                                [](char unit) -> bool { return static_cast<std::uint8_t>(unit) <= 0x7F; })) {
+            std::ranges::transform(domain, domain.begin(), to_ascii_lower);
+        } else {
+            auto ascii = idna::to_ascii(domain);
+            if (!ascii) {
+                return std::unexpected(ascii.error());
+            }
+
+            domain = std::move(*ascii);
         }
 
-        std::ranges::transform(domain, domain.begin(), to_ascii_lower);
         if (domain.empty()) {
             return std::unexpected(
                 rei::error{core::make_error_code(core::error_code::invalid_argument), "domain is empty"});
