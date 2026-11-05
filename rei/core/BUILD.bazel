@@ -25,6 +25,33 @@ cc_library(
 )
 
 cc_library(
+    name = "url",
+    include_prefix = "core",
+
+    srcs = [
+        "url/detail.hpp",
+
+        "url/encoding.cpp",
+        "url/host.cpp",
+        "url/parser.cpp",
+        "url/serializer.cpp",
+        "url/writers.cpp",
+    ],
+
+    hdrs = [
+      "url.hpp",
+    ],
+
+    deps = [
+        ":error",
+        ":utf8",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
     name = "core",
     include_prefix = "core",
 
