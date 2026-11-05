@@ -8,3 +8,20 @@ bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "magic_enum", version = "0.9.8")
 
 bazel_dep(name = "googletest", version = "1.18.0", dev_dependency = True)
+
+# Unicode data for IDNA in core::url.
+idna_tables = use_repo_rule("//rei/core:url/idna_tables.bzl", "idna_tables")
+
+idna_tables(
+    name = "idna_tables",
+    version = "18.0.0",
+    sha256 = {
+        "idna/IdnaMappingTable.txt": "a03b1eb38032268c696406a83f0972d6a815acd2c8d4151d42ec0fda70ffced1",
+        "ucd/UnicodeData.txt": "0736451de439ae7baf1425136617da495e09ee5afbe6e394374db7009ea08950",
+        "ucd/DerivedNormalizationProps.txt": "98ac7f67d985fe781e317f6182e885e94cabb0c314769e6dd73e48b226931ccd",
+        "ucd/extracted/DerivedBidiClass.txt": "d9e23222522551348ea1ccfbb4f62efbf98982afb95840f8959c08ed992c5607",
+        "ucd/extracted/DerivedCombiningClass.txt": "ef6b2611cfb660dba3f6b458b9eb4b05f44ed2417302ee7749d7f0f348793121",
+        "ucd/extracted/DerivedGeneralCategory.txt": "d6b151d2d40ee9b1876d26f417980f45ffae47b6055ccf7203cb31f07a030f94",
+        "ucd/extracted/DerivedJoiningType.txt": "e2408ff2c92b175b0f7bf62c989bbb54c7b077528fe31f8d69b96fa09e7d61ed",
+    },
+)

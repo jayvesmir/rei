@@ -26,6 +26,25 @@ cc_library(
 )
 
 cc_library(
+    name = "idna",
+    include_prefix = "core",
+
+    srcs = [
+        "url/idna.cpp",
+        "@idna_tables//:idna_tables.cpp",
+    ],
+
+    hdrs = ["url/idna.hpp"],
+
+    deps = [
+        ":error",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//rei/core:__subpackages__"],
+)
+
+cc_library(
     name = "url",
     include_prefix = "core",
 
