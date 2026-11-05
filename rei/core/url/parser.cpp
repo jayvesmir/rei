@@ -106,6 +106,13 @@ namespace rei::core::detail {
         bool password_token_seen = false;
         std::ptrdiff_t pointer = 0;
 
+        // Most states check this for every code point, so it's only recomputed when the scheme changes.
+        bool special = detail::is_special(url.scheme);
+        auto set_scheme = [&](std::string_view scheme) -> void {
+            url.scheme = scheme;
+            special = detail::is_special(scheme);
+        };
+
         auto remaining = [&] -> std::string_view {
             return std::string_view{input}.substr(static_cast<std::size_t>(std::min(pointer + 1, size)));
         };
@@ -138,7 +145,7 @@ namespace rei::core::detail {
                     buffer += to_ascii_lower(unit);
                 } else if (unit == ':') {
                     if (state_override) {
-                        if (detail::is_special(url.scheme) != detail::is_special(buffer)) {
+                        if (special != detail::is_special(buffer)) {
                             return std::unexpected(
                                 rei::error{core::make_error_code(core::error_code::invalid_argument),
                                            "can't switch between special and non-special schemes"});
@@ -155,7 +162,7 @@ namespace rei::core::detail {
                         }
                     }
 
-                    url.scheme = buffer;
+                    set_scheme(buffer);
                     if (state_override) {
                         if (url.port == detail::default_port(url.scheme)) {
                             url.port.reset();
@@ -167,10 +174,9 @@ namespace rei::core::detail {
                     buffer.clear();
                     if (url.scheme == "file") {
                         state = parse_state::file;
-                    } else if (detail::is_special(url.scheme) && base != nullptr &&
-                               base->scheme == url.scheme) {
+                    } else if (special && base != nullptr && base->scheme == url.scheme) {
                         state = parse_state::special_relative_or_authority;
-                    } else if (detail::is_special(url.scheme)) {
+                    } else if (special) {
                         state = parse_state::special_authority_slashes;
                     } else if (remaining().starts_with('/')) {
                         state = parse_state::path_or_authority;
@@ -197,7 +203,7 @@ namespace rei::core::detail {
                 }
 
                 if (detail::has_opaque_path(*base)) {
-                    url.scheme = base->scheme;
+                    set_scheme(base->scheme);
                     url.path = base->path;
                     url.query = base->query;
                     url.fragment.emplace();
@@ -228,8 +234,8 @@ namespace rei::core::detail {
                 break;
 
             case parse_state::relative:
-                url.scheme = base->scheme;
-                if (unit == '/' || (detail::is_special(url.scheme) && unit == '\\')) {
+                set_scheme(base->scheme);
+                if (unit == '/' || (special && unit == '\\')) {
                     state = parse_state::relative_slash;
                 } else {
                     copy_authority();
@@ -252,7 +258,7 @@ namespace rei::core::detail {
                 break;
 
             case parse_state::relative_slash:
-                if (detail::is_special(url.scheme) && (unit == '/' || unit == '\\')) {
+                if (special && (unit == '/' || unit == '\\')) {
                     state = parse_state::special_authority_ignore_slashes;
                 } else if (unit == '/') {
                     state = parse_state::authority;
@@ -298,7 +304,7 @@ namespace rei::core::detail {
 
                     buffer.clear();
                 } else if (unit == eof || unit == '/' || unit == '?' || unit == '#' ||
-                           (detail::is_special(url.scheme) && unit == '\\')) {
+                           (special && unit == '\\')) {
                     if (at_sign_seen && buffer.empty()) {
                         return std::unexpected(rei::error{
                             core::make_error_code(core::error_code::invalid_argument), "missing host"});
@@ -327,7 +333,7 @@ namespace rei::core::detail {
                                        "host can't include a port"});
                     }
 
-                    auto host = detail::parse_host(buffer, !detail::is_special(url.scheme));
+                    auto host = detail::parse_host(buffer, !special);
                     if (!host) {
                         return std::unexpected(host.error());
                     }
@@ -336,9 +342,9 @@ namespace rei::core::detail {
                     buffer.clear();
                     state = parse_state::port;
                 } else if (unit == eof || unit == '/' || unit == '?' || unit == '#' ||
-                           (detail::is_special(url.scheme) && unit == '\\')) {
+                           (special && unit == '\\')) {
                     pointer--;
-                    if (detail::is_special(url.scheme) && buffer.empty()) {
+                    if (special && buffer.empty()) {
                         return std::unexpected(rei::error{
                             core::make_error_code(core::error_code::invalid_argument), "missing host"});
                     }
@@ -348,7 +354,7 @@ namespace rei::core::detail {
                                        "URLs with credentials or a port need a host"});
                     }
 
-                    auto host = detail::parse_host(buffer, !detail::is_special(url.scheme));
+                    auto host = detail::parse_host(buffer, !special);
                     if (!host) {
                         return std::unexpected(host.error());
                     }
@@ -375,7 +381,7 @@ namespace rei::core::detail {
                 if (is_ascii_digit(unit)) {
                     buffer += static_cast<char>(unit);
                 } else if (unit == eof || unit == '/' || unit == '?' || unit == '#' ||
-                           (detail::is_special(url.scheme) && unit == '\\')) {
+                           (special && unit == '\\')) {
                     if (!buffer.empty()) {
                         std::uint16_t port{};
                         if (std::from_chars(buffer.data(), buffer.data() + buffer.size(), port).ec !=
@@ -402,7 +408,7 @@ namespace rei::core::detail {
                 break;
 
             case parse_state::file:
-                url.scheme = "file";
+                set_scheme("file");
                 url.host.emplace();
                 if (unit == '/' || unit == '\\') {
                     state = parse_state::file_slash;
@@ -466,7 +472,7 @@ namespace rei::core::detail {
 
                         state = parse_state::path_start;
                     } else {
-                        auto host = detail::parse_host(buffer, !detail::is_special(url.scheme));
+                        auto host = detail::parse_host(buffer, !special);
                         if (!host) {
                             return std::unexpected(host.error());
                         }
@@ -485,7 +491,7 @@ namespace rei::core::detail {
                 break;
 
             case parse_state::path_start:
-                if (detail::is_special(url.scheme)) {
+                if (special) {
                     state = parse_state::path;
                     if (unit != '/' && unit != '\\') {
                         pointer--;
@@ -507,9 +513,9 @@ namespace rei::core::detail {
                 break;
 
             case parse_state::path:
-                if (unit == eof || unit == '/' || (detail::is_special(url.scheme) && unit == '\\') ||
+                if (unit == eof || unit == '/' || (special && unit == '\\') ||
                     (!state_override && (unit == '?' || unit == '#'))) {
-                    const bool slash = unit == '/' || (detail::is_special(url.scheme) && unit == '\\');
+                    const bool slash = unit == '/' || (special && unit == '\\');
                     if (detail::is_double_dot_segment(buffer)) {
                         detail::shorten_path(url);
                         if (!slash) {
@@ -563,8 +569,7 @@ namespace rei::core::detail {
                     state = parse_state::fragment;
                 } else if (unit != eof) {
                     detail::percent_encode(*url.query, static_cast<char>(unit),
-                                           detail::is_special(url.scheme) ? encode_set::special_query
-                                                                          : encode_set::query);
+                                           special ? encode_set::special_query : encode_set::query);
                 }
                 break;
 
