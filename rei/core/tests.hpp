@@ -9,3 +9,5 @@ namespace rei {
                    << error.code().message() << "\" " << error.detail();
     }
 } // namespace rei
+
+// TODO: The has_error helper should probably be here too

@@ -5,6 +5,7 @@ cc_test(
     size = "small",
 
     srcs = [
+        "url.cpp",
         "utf8.cpp",
     ],
 
