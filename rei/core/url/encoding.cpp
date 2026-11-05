@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cstdint>
 #include <string>
@@ -33,6 +34,28 @@ namespace rei::core::detail {
 
             std::unreachable();
         }
+
+        // Bit `set` of a byte's entry tells whether that set encodes the byte, so encoding doesn't have to
+        // search the set for every code unit.
+        constexpr auto encode_set_table = [] -> std::array<std::uint8_t, 256> {
+            std::array<std::uint8_t, 256> table{};
+            for (auto set : {
+                     encode_set::c0_control,
+                     encode_set::fragment,
+                     encode_set::query,
+                     encode_set::special_query,
+                     encode_set::path,
+                     encode_set::userinfo,
+                 }) {
+                for (auto byte = 0uz; byte < table.size(); byte++) {
+                    if (in_encode_set(static_cast<char>(byte), set)) {
+                        table[byte] |= 1U << std::to_underlying(set);
+                    }
+                }
+            }
+
+            return table;
+        }();
     } // namespace
 
     auto ascii_iequals(std::string_view lhs, std::string_view rhs) -> bool {
@@ -49,7 +72,7 @@ namespace rei::core::detail {
     }
 
     auto percent_encode(std::string& output, char unit, detail::encode_set set) -> void {
-        if (in_encode_set(unit, set)) {
+        if (((encode_set_table[static_cast<std::uint8_t>(unit)] >> std::to_underlying(set)) & 1U) != 0) {
             detail::append_percent_encoded(output, unit);
         } else {
             output += unit;
