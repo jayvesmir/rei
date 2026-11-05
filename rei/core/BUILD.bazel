@@ -1,12 +1,85 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
 cc_library(
-    name = "core",
+    name = "error",
     include_prefix = "core",
 
     hdrs = [
+        "tests.hpp",
         "error.hpp",
         "error_code.hpp",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "utf8",
+    include_prefix = "core",
+
+    srcs = ["utf8/utf8.cpp"],
+    hdrs = ["utf8.hpp"],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "idna",
+    include_prefix = "core",
+
+    srcs = [
+        "url/idna.cpp",
+        "@idna_tables//:idna_tables.cpp",
+    ],
+
+    hdrs = ["url/idna.hpp"],
+
+    deps = [
+        ":error",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//rei/core:__subpackages__"],
+)
+
+cc_library(
+    name = "url",
+    include_prefix = "core",
+
+    srcs = [
+        "url/detail.hpp",
+
+        "url/encoding.cpp",
+        "url/host.cpp",
+        "url/parser.cpp",
+        "url/serializer.cpp",
+        "url/writers.cpp",
+    ],
+
+    hdrs = [
+      "url.hpp",
+    ],
+
+    deps = [
+        ":error",
+        ":idna",
+        ":utf8",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "core",
+    include_prefix = "core",
+
+    deps = [
+        ":error",
+        ":url",
+        ":utf8",
     ],
 
     cxxopts = ["-std=c++23"],
