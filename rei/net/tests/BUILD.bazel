@@ -6,8 +6,11 @@ cc_test(
 
     srcs = [
         "http_body.cpp",
+        "http_client_server.cpp",
+        "http_connection.cpp",
         "http_framing.cpp",
         "http_head.cpp",
+        "http_message.cpp",
         "resolve.cpp",
         "socket_lifecycle.cpp",
         "socket_tcp.cpp",
