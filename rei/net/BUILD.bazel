@@ -109,6 +109,24 @@ cc_library(
 )
 
 cc_library(
+    name = "http_connection",
+    include_prefix = "net",
+
+    srcs = ["http/connection.cpp"],
+    hdrs = ["http/connection.hpp"],
+
+    deps = [
+        "//rei/core:error",
+        ":common",
+        ":http",
+        ":socket",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"]
+)
+
+cc_library(
     name = "net",
     include_prefix = "net",
 
@@ -117,6 +135,7 @@ cc_library(
 
     deps = [
         ":http",
+        ":http_connection",
         ":socket",
     ],
 
