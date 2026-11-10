@@ -1,7 +1,9 @@
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cstddef>
 #include <expected>
+#include <initializer_list>
 #include <limits>
 #include <source_location>
 #include <span>
@@ -28,9 +30,20 @@ namespace rei::net::http::h1 {
                                               std::move(detail), location});
         }
 
-        auto append(std::vector<std::byte>& out, std::string_view text) -> void {
-            const auto bytes = std::as_bytes(std::span{text});
-            out.insert(out.end(), bytes.begin(), bytes.end());
+        // Grows `out` once for all the parts, which costs less than appending them one by one.
+        auto append(std::vector<std::byte>& out, std::initializer_list<std::string_view> parts) -> void {
+            auto size = 0uz;
+            for (const auto part : parts) {
+                size += part.size();
+            }
+
+            auto position = out.size();
+            out.resize(position + size);
+
+            for (const auto part : parts) {
+                std::ranges::copy(std::as_bytes(std::span{part}), std::span{out}.subspan(position).begin());
+                position += part.size();
+            }
         }
 
         auto append_number(std::vector<std::byte>& out, std::size_t number, int base) -> void {
@@ -38,7 +51,7 @@ namespace rei::net::http::h1 {
             const auto* const end =
                 std::to_chars(digits.data(), digits.data() + digits.size(), number, base).ptr;
 
-            append(out, std::string_view{digits.data(), end});
+            append(out, {std::string_view{digits.data(), end}});
         }
 
         auto validate_headers(std::span<const http::header> headers) -> std::expected<void, rei::error> {
@@ -56,10 +69,7 @@ namespace rei::net::http::h1 {
 
         auto append_headers(std::vector<std::byte>& out, std::span<const http::header> headers) -> void {
             for (const auto& header : headers) {
-                append(out, header.name);
-                append(out, ": ");
-                append(out, header.value);
-                append(out, line_break);
+                append(out, {header.name, ": ", header.value, line_break});
             }
         }
     } // namespace
@@ -80,14 +90,9 @@ namespace rei::net::http::h1 {
             return valid;
         }
 
-        append(out, head.method);
-        append(out, " ");
-        append(out, head.target);
-        append(out, " ");
-        append(out, version);
-        append(out, line_break);
+        append(out, {head.method, " ", head.target, " ", version, line_break});
         append_headers(out, head.headers);
-        append(out, line_break);
+        append(out, {line_break});
 
         return {};
     }
@@ -109,14 +114,11 @@ namespace rei::net::http::h1 {
             return valid;
         }
 
-        append(out, version);
-        append(out, " ");
+        append(out, {version, " "});
         append_number(out, code, 10);
-        append(out, " ");
-        append(out, head.reason.empty() ? http::reason_phrase(head.status) : head.reason);
-        append(out, line_break);
+        append(out, {" ", head.reason.empty() ? http::reason_phrase(head.status) : head.reason, line_break});
         append_headers(out, head.headers);
-        append(out, line_break);
+        append(out, {line_break});
 
         return {};
     }
@@ -127,12 +129,12 @@ namespace rei::net::http::h1 {
         }
 
         append_number(out, data.size(), 16);
-        append(out, line_break);
+        append(out, {line_break});
         out.insert(out.end(), data.begin(), data.end());
-        append(out, line_break);
+        append(out, {line_break});
     }
 
     auto write_last_chunk(std::vector<std::byte>& out) -> void {
-        append(out, "0\r\n\r\n");
+        append(out, {"0\r\n\r\n"});
     }
 } // namespace rei::net::http::h1
