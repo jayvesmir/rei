@@ -177,14 +177,17 @@ namespace rei::net::http {
             std::erase_if(idle, [&](const detail::pool::idle_connection& entry) -> bool {
                 return entry.since < oldest_allowed;
             });
-            if (idle.empty()) {
-                return std::nullopt;
+
+            while (!idle.empty()) {
+                auto connection = std::move(idle.back().connection);
+                idle.pop_back();
+
+                if (!connection.stale()) {
+                    return connection;
+                }
             }
 
-            auto connection = std::move(idle.back().connection);
-            idle.pop_back();
-
-            return connection;
+            return std::nullopt;
         }
 
         // Holds a connection while a response body streams from it.

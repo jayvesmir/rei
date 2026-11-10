@@ -246,6 +246,20 @@ namespace rei::net::http {
         return 0;
     }
 
+    auto connection::stale() -> bool {
+        if (m_begin < m_end) {
+            return true;
+        }
+
+        std::byte unread{};
+        const auto received = m_socket.set_timeout(std::chrono::milliseconds{0})
+                                  .and_then([&] -> std::expected<std::size_t, rei::error> {
+                                      return m_socket.receive({&unread, 1});
+                                  });
+
+        return received || received.error().code() != net::error_code::timed_out;
+    }
+
     template <typename Head, typename Framing>
     auto connection::_write_head(const Head& head, Framing framing) -> std::expected<void, rei::error> {
         if (m_write_failed) {

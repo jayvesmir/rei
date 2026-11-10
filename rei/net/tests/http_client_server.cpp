@@ -358,7 +358,7 @@ namespace rei::net::tests {
         EXPECT_TRUE(absolute->ends_with("\r\n\r\n/x?y"));
     }
 
-    TEST(http_client_server, client_retries_a_pooled_connection_the_server_closed) {
+    TEST(http_client_server, client_drops_a_pooled_connection_the_server_closed) {
         const test_server server{
             [](http::request& request) -> http::response {
                 return {.body = std::to_string(request.peer().port)};
@@ -367,14 +367,48 @@ namespace rei::net::tests {
         };
         http::client client;
 
-        const auto first = client.send({.url = server.url("/")});
+        // A POST is never sent twice, so the closed connection has to be noticed before it is used.
+        const auto first = client.send({.method = "POST", .url = server.url("/")});
         ASSERT_TRUE(first) << first.error();
 
         std::this_thread::sleep_for(500ms);
 
-        const auto second = client.send({.url = server.url("/")});
+        const auto second = client.send({.method = "POST", .url = server.url("/")});
         ASSERT_TRUE(second) << second.error();
         EXPECT_NE(first->body.text(), second->body.text());
+    }
+
+    TEST(http_client_server, client_drops_unread_input_and_retries_a_connection_closed_mid_request) {
+        auto listener = net::socket::make(net::communication_domain::ipv4, net::transport_protocol::tcp);
+        ASSERT_TRUE(listener) << listener.error();
+        ASSERT_TRUE(listener->set_timeout(5s));
+        ASSERT_TRUE(listener->bind(tests::loopback(net::communication_domain::ipv4)));
+        ASSERT_TRUE(listener->listen());
+        const auto local = listener->local_endpoint();
+        ASSERT_TRUE(local) << local.error();
+
+        // Every connection answers one request. The first adds a response nobody asked for, and the
+        // second closes once the next request has arrived.
+        std::jthread server{[&] -> void {
+            for (const std::string_view extra :
+                 {"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nextra", "", ""}) {
+                auto socket = listener->accept();
+                if (!socket || !socket->set_timeout(5s) || !receive_text(*socket, "\r\n\r\n")) {
+                    return;
+                }
+
+                (void)send_text(*socket,
+                                std::format("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok{}", extra));
+                (void)receive_text(*socket, "\r\n\r\n");
+            }
+        }};
+
+        http::client client;
+        for (auto i = 0; i < 3; i++) {
+            const auto response = client.send({.url = std::format("http://127.0.0.1:{}/", local->port)});
+            ASSERT_TRUE(response) << response.error();
+            EXPECT_EQ(response->body.text(), "ok");
+        }
     }
 
     TEST(http_client_server, redirects_are_followed_only_when_enabled) {

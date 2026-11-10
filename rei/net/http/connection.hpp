@@ -91,5 +91,9 @@ namespace rei::net::http {
             return !m_read_failed && !m_write_failed && !m_body_pending && !m_writing &&
                    m_input_keeps_alive && m_output_keeps_alive;
         }
+
+        // The peer closed the connection, or sent bytes that nothing has read. A client checks this
+        // before its next request, whose response those bytes would otherwise pass for.
+        [[nodiscard]] auto stale() -> bool;
     };
 } // namespace rei::net::http
