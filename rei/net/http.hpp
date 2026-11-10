@@ -1,10 +1,19 @@
 #pragma once
 
+#include <concepts>
+#include <cstddef>
 #include <cstdint>
+#include <expected>
+#include <functional>
+#include <initializer_list>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
+
+#include "rei/core/error.hpp"
 
 namespace rei::net::http {
     enum class version : std::uint8_t {
@@ -269,5 +278,78 @@ namespace rei::net::http {
         http::status status{http::status::ok};
         std::string_view reason;
         std::vector<http::header> headers;
+    };
+
+    // Owned fields in insertion order. Names compare ASCII case-insensitively.
+    class headers {
+      public:
+        using field = std::pair<std::string, std::string>;
+
+      private:
+        std::vector<headers::field> m_fields;
+
+      public:
+        headers() = default;
+        headers(std::initializer_list<http::header> fields);
+
+        [[nodiscard]] auto find(std::string_view name) const noexcept -> std::optional<std::string_view>;
+        auto add(std::string_view name, std::string_view value) -> void;
+        // Replaces every field called `name`, keeping the position of the first.
+        auto set(std::string_view name, std::string_view value) -> void;
+        auto remove(std::string_view name) -> void;
+
+        [[nodiscard]] auto begin() const noexcept -> std::vector<headers::field>::const_iterator {
+            return m_fields.begin();
+        }
+        [[nodiscard]] auto end() const noexcept -> std::vector<headers::field>::const_iterator {
+            return m_fields.end();
+        }
+
+        auto operator==(const headers&) const -> bool = default;
+    };
+
+    // Returns 0 at the end of the body. `out` is never empty.
+    using body_reader = std::function<auto(std::span<std::byte> out)->std::expected<std::size_t, rei::error>>;
+
+    // Either bytes in memory or a reader that produces them.
+    class body {
+      private:
+        std::vector<std::byte> m_data;
+        std::size_t m_read{};
+        http::body_reader m_reader;
+        std::optional<std::uint64_t> m_size{0};
+
+      public:
+        body() = default;
+        body(std::vector<std::byte> data);
+
+        // Copies the text.
+        template <typename Text>
+            requires std::convertible_to<const Text&, std::string_view>
+        body(const Text& text) {
+            const auto bytes = std::as_bytes(std::span{std::string_view{text}});
+            m_data.assign(bytes.begin(), bytes.end());
+            m_size = m_data.size();
+        }
+
+        // `size` is how many bytes the reader will produce, when that is known.
+        body(http::body_reader reader, std::optional<std::uint64_t> size = std::nullopt);
+
+        [[nodiscard]] auto streamed() const noexcept -> bool { return static_cast<bool>(m_reader); }
+        [[nodiscard]] auto size() const noexcept -> std::optional<std::uint64_t> { return m_size; }
+
+        // Both are empty for a streamed body.
+        [[nodiscard]] auto bytes() const noexcept -> std::span<const std::byte> { return m_data; }
+        [[nodiscard]] auto text() const noexcept -> std::string_view {
+            return {reinterpret_cast<const char*>(m_data.data()), m_data.size()};
+        }
+
+        auto read(std::span<std::byte> out) -> std::expected<std::size_t, rei::error>;
+    };
+
+    struct response {
+        http::status status{http::status::ok};
+        http::headers headers;
+        http::body body;
     };
 } // namespace rei::net::http

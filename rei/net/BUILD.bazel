@@ -88,6 +88,7 @@ cc_library(
         "http/body.cpp",
         "http/framing.cpp",
         "http/header.cpp",
+        "http/message.cpp",
         "http/parse.cpp",
         "http/write.cpp",
     ],
