@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <expected>
 #include <functional>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -48,6 +49,8 @@ namespace rei::net::http {
         using deadline_type = std::optional<std::chrono::steady_clock::time_point>;
 
         constexpr auto copy_size = 16uz * 1024;
+        // What a socket can wait for, about 24 days.
+        constexpr auto longest_timeout = std::chrono::milliseconds{std::numeric_limits<int>::max()};
 
         auto failure(std::error_code code, std::string detail,
                      std::source_location location = std::source_location::current())
@@ -435,7 +438,17 @@ namespace rei::net::http {
     } // namespace
 
     client::client(http::client_options options)
-        : m_options(std::move(options)), m_pool(std::make_shared<detail::pool>()) {}
+        : m_options(std::move(options)), m_pool(std::make_shared<detail::pool>()) {
+        // A longer timeout stands for none, and would be refused by the socket or overflow a deadline.
+        const auto cap = [](std::chrono::milliseconds timeout) -> std::chrono::milliseconds {
+            return std::min(timeout, longest_timeout);
+        };
+
+        m_options.connect_timeout = cap(m_options.connect_timeout);
+        m_options.io_timeout = m_options.io_timeout.transform(cap);
+        m_options.timeout = m_options.timeout.transform(cap);
+        m_options.idle_timeout = cap(m_options.idle_timeout);
+    }
 
     auto client::_open(http::client_request request, deadline_type deadline, bool deadline_covers_body)
         -> std::expected<http::response, rei::error> {

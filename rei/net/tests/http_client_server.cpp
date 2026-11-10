@@ -530,16 +530,25 @@ namespace rei::net::tests {
     }
 
     TEST(http_client_server, the_longest_timeouts_stand_for_none) {
+        constexpr auto longest = std::chrono::milliseconds::max();
+
         const test_server server{
             [](http::request&) -> http::response { return {.body = "ok"}; },
-            {.head_timeout = std::chrono::milliseconds::max(),
-             .io_timeout = std::chrono::milliseconds::max()},
+            {.head_timeout = longest, .io_timeout = longest},
         };
-        http::client client;
+        http::client client{{
+            .connect_timeout = longest,
+            .io_timeout = longest,
+            .timeout = longest,
+            .idle_timeout = longest,
+        }};
 
-        const auto response = client.send({.url = server.url("/")});
-        ASSERT_TRUE(response) << response.error();
-        EXPECT_EQ(response->body.text(), "ok");
+        // The second request takes the connection of the first from the pool.
+        for (auto i = 0; i < 2; i++) {
+            const auto response = client.send({.url = server.url("/")});
+            ASSERT_TRUE(response) << response.error();
+            EXPECT_EQ(response->body.text(), "ok");
+        }
     }
 
     TEST(http_client_server, stop_closes_idle_connections_and_lets_a_running_request_announce_it) {
