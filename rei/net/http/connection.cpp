@@ -96,7 +96,8 @@ namespace rei::net::http {
         m_end -= m_begin;
         m_begin = 0;
 
-        const auto capacity = m_limits.max_head_size + body_window;
+        // Saturates, so the largest max_head_size means no limit instead of wrapping around to a small one.
+        const auto capacity = std::max(m_limits.max_head_size, m_limits.max_head_size + body_window);
         if (m_input.empty()) {
             m_input.resize(std::min(initial_input_size, capacity));
         }
