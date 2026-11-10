@@ -573,7 +573,7 @@ namespace rei::net::http {
                 break;
             }
 
-            auto closing = m_stopping || !h1::keeps_alive(request.m_head.version, request.m_head.headers);
+            auto closing = !h1::keeps_alive(request.m_head.version, request.m_head.headers);
 
             auto result = m_handler(request);
             if (result && std::to_underlying(result->status) < 200) {
@@ -601,7 +601,8 @@ namespace rei::net::http {
                 response = http::response{.status = *status};
             }
 
-            closing = closing || !request._drain();
+            // A stop() during the handler only shows now.
+            closing = closing || m_stopping || !request._drain();
 
             if (auto written = write_response(connection, request.m_head, response, closing, head, buffer);
                 !written) {

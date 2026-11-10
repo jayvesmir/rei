@@ -529,18 +529,28 @@ namespace rei::net::tests {
                                      std::errc::invalid_argument));
     }
 
-    TEST(http_client_server, stop_closes_idle_connections_without_waiting_for_their_timeout) {
-        http::server server{[](http::request&) -> http::response { return {.body = "ok"}; }};
+    TEST(http_client_server, stop_closes_idle_connections_and_lets_a_running_request_announce_it) {
+        http::server* stopped = nullptr;
+        http::server server{[&](http::request&) -> http::response {
+            stopped->stop();
+            return {.body = "ok"};
+        }};
+        stopped = &server;
+
         const auto local = server.listen({.address = "127.0.0.1", .port = 0});
         ASSERT_TRUE(local) << local.error();
         std::jthread running{[&] -> void { (void)server.run(); }};
 
-        http::client client;
-        const auto response = client.send({.url = std::format("http://127.0.0.1:{}/", local->port)});
-        ASSERT_TRUE(response) << response.error();
+        // Idles until the stop, which would otherwise wait for its head_timeout.
+        const auto idle = connect_to(local->port);
+        ASSERT_TRUE(idle) << idle.error();
 
         const auto start = std::chrono::steady_clock::now();
-        server.stop();
+        const auto response = exchange_raw(local->port, "GET / HTTP/1.1\r\nHost: a\r\n\r\n");
+        ASSERT_TRUE(response) << response.error();
+        EXPECT_TRUE(response->contains("Connection: close\r\n"));
+        EXPECT_TRUE(response->ends_with("\r\n\r\nok"));
+
         running.join();
         EXPECT_LT(std::chrono::steady_clock::now() - start, 2s);
     }
