@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <expected>
 #include <functional>
-#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -49,21 +48,11 @@ namespace rei::net::http {
         using deadline_type = std::optional<std::chrono::steady_clock::time_point>;
 
         constexpr auto copy_size = 16uz * 1024;
-        // What a socket can wait for, about 24 days.
-        constexpr auto longest_timeout = std::chrono::milliseconds{std::numeric_limits<int>::max()};
 
         auto failure(std::error_code code, std::string detail,
                      std::source_location location = std::source_location::current())
             -> std::unexpected<rei::error> {
             return std::unexpected(rei::error{code, std::move(detail), location});
-        }
-
-        auto deadline_after(std::optional<std::chrono::milliseconds> timeout) -> deadline_type {
-            if (!timeout) {
-                return std::nullopt;
-            }
-
-            return std::chrono::steady_clock::now() + *timeout;
         }
 
         struct destination {
@@ -122,8 +111,8 @@ namespace rei::net::http {
             };
         }
 
-        auto connect(const destination& where, std::chrono::milliseconds timeout, deadline_type deadline)
-            -> std::expected<net::socket, rei::error> {
+        auto connect(const destination& where, std::optional<std::chrono::milliseconds> timeout,
+                     deadline_type deadline) -> std::expected<net::socket, rei::error> {
             if (deadline) {
                 const auto left = std::chrono::ceil<std::chrono::milliseconds>(
                     *deadline - std::chrono::steady_clock::now());
@@ -131,7 +120,7 @@ namespace rei::net::http {
                     return failure(net::make_error_code(net::error_code::timed_out), "deadline passed");
                 }
 
-                timeout = std::min(timeout, left);
+                timeout = timeout ? std::min(*timeout, left) : left;
             }
 
             // Names try IPv4 first, then IPv6. A failed connect is reported over a failed lookup.
@@ -171,15 +160,17 @@ namespace rei::net::http {
             return std::unexpected(*error);
         }
 
-        auto take_idle(detail::pool& pool, std::string_view origin, std::chrono::milliseconds idle_timeout)
+        auto take_idle(detail::pool& pool, std::string_view origin,
+                       std::optional<std::chrono::milliseconds> idle_timeout)
             -> std::optional<http::connection> {
             const std::scoped_lock lock{pool.mutex};
 
             // Every origin is swept, or connections to one that is never asked for again would stay open.
-            const auto oldest_allowed = std::chrono::steady_clock::now() - idle_timeout;
+            const auto now = std::chrono::steady_clock::now();
             std::erase_if(pool.idle, [&](auto& entry) -> bool {
                 std::erase_if(entry.second, [&](const detail::pool::idle_connection& idle) -> bool {
-                    return idle.since < oldest_allowed;
+                    return idle_timeout &&
+                           std::chrono::ceil<std::chrono::milliseconds>(now - idle.since) > *idle_timeout;
                 });
 
                 return entry.second.empty();
@@ -438,17 +429,7 @@ namespace rei::net::http {
     } // namespace
 
     client::client(http::client_options options)
-        : m_options(std::move(options)), m_pool(std::make_shared<detail::pool>()) {
-        // A longer timeout stands for none, and would be refused by the socket or overflow a deadline.
-        const auto cap = [](std::chrono::milliseconds timeout) -> std::chrono::milliseconds {
-            return std::min(timeout, longest_timeout);
-        };
-
-        m_options.connect_timeout = cap(m_options.connect_timeout);
-        m_options.io_timeout = m_options.io_timeout.transform(cap);
-        m_options.timeout = m_options.timeout.transform(cap);
-        m_options.idle_timeout = cap(m_options.idle_timeout);
-    }
+        : m_options(std::move(options)), m_pool(std::make_shared<detail::pool>()) {}
 
     auto client::_open(http::client_request request, deadline_type deadline, bool deadline_covers_body)
         -> std::expected<http::response, rei::error> {
@@ -505,7 +486,7 @@ namespace rei::net::http {
     }
 
     auto client::send(http::client_request request) -> std::expected<http::response, rei::error> {
-        auto response = _open(std::move(request), deadline_after(m_options.timeout), true);
+        auto response = _open(std::move(request), m_options.timeout.transform(http::deadline_after), true);
         if (!response || !response->body.streamed()) {
             return response;
         }
@@ -546,6 +527,6 @@ namespace rei::net::http {
     }
 
     auto client::stream(http::client_request request) -> std::expected<http::response, rei::error> {
-        return _open(std::move(request), deadline_after(m_options.timeout), false);
+        return _open(std::move(request), m_options.timeout.transform(http::deadline_after), false);
     }
 } // namespace rei::net::http

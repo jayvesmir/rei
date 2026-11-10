@@ -1,4 +1,5 @@
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -529,32 +530,48 @@ namespace rei::net::tests {
         http::client impatient{{.io_timeout = 50ms}};
         EXPECT_TRUE(tests::has_error(impatient.send({.url = server.url("/")}), net::error_code::timed_out));
 
+        // A socket can't wait this long, which is what std::nullopt is for.
+        http::client endless{{.io_timeout = std::chrono::hours{24 * 365}}};
+        EXPECT_TRUE(tests::has_error(endless.send({.url = server.url("/")}), std::errc::invalid_argument));
+
         http::client client;
         EXPECT_TRUE(tests::has_error(client.send({.url = "https://example.com/"}), std::errc::not_supported));
         EXPECT_TRUE(tests::has_error(client.send({.url = "http://user:secret@127.0.0.1/"}),
                                      std::errc::invalid_argument));
     }
 
-    TEST(http_client_server, the_longest_timeouts_stand_for_none) {
-        constexpr auto longest = std::chrono::milliseconds::max();
+    TEST(http_client_server, timeouts_are_optional_and_one_the_socket_refuses_is_reported) {
+        const auto handler = [](http::request&) -> http::response { return {.body = "ok"}; };
 
-        const test_server server{
-            [](http::request&) -> http::response { return {.body = "ok"}; },
-            {.head_timeout = longest, .io_timeout = longest},
-        };
+        const test_server patient{handler, {.head_timeout = std::nullopt, .io_timeout = std::nullopt}};
         http::client client{{
-            .connect_timeout = longest,
-            .io_timeout = longest,
-            .timeout = longest,
-            .idle_timeout = longest,
+            .connect_timeout = std::nullopt,
+            .io_timeout = std::nullopt,
+            .timeout = std::nullopt,
+            .idle_timeout = std::nullopt,
         }};
 
         // The second request takes the connection of the first from the pool.
         for (auto i = 0; i < 2; i++) {
-            const auto response = client.send({.url = server.url("/")});
+            const auto response = client.send({.url = patient.url("/")});
             ASSERT_TRUE(response) << response.error();
             EXPECT_EQ(response->body.text(), "ok");
         }
+
+        // Longer than a socket can wait, so this server can't read a request, and has to say so.
+        std::atomic<int> reports{0};
+        const test_server broken{
+            handler,
+            {
+                .head_timeout = std::chrono::milliseconds::max(),
+                .on_error = [&](const rei::error& error) -> void {
+                    reports += error.code() == std::errc::invalid_argument ? 1 : 0;
+                },
+            },
+        };
+
+        EXPECT_FALSE(client.send({.url = broken.url("/")}));
+        EXPECT_EQ(reports, 1);
     }
 
     TEST(http_client_server, stop_closes_idle_connections_and_lets_a_running_request_announce_it) {

@@ -112,8 +112,9 @@ namespace rei::net::http {
         std::size_t max_head_size{128uz * 1024};
         std::size_t max_headers{256};
         std::uint64_t max_body_size{1024uz * 1024 * 1024};
-        std::chrono::milliseconds head_timeout{std::chrono::seconds{30}};
-        std::chrono::milliseconds io_timeout{std::chrono::seconds{60}};
+        // std::nullopt waits for as long as it takes.
+        std::optional<std::chrono::milliseconds> head_timeout{std::chrono::seconds{30}};
+        std::optional<std::chrono::milliseconds> io_timeout{std::chrono::seconds{60}};
         std::optional<std::size_t> max_connections;
 
         // Called from connection threads, possibly at the same time.

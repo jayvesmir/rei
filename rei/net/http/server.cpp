@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <expected>
 #include <format>
-#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -48,8 +47,6 @@ namespace rei::net::http {
         constexpr auto copy_size = 16uz * 1024;
         constexpr auto linger_wait = 100ms;
         constexpr auto linger_limit = 64uz * 1024;
-        // What a socket can wait for, about 24 days.
-        constexpr auto longest_timeout = std::chrono::milliseconds{std::numeric_limits<int>::max()};
 
         auto failure(http::error_code code, std::string detail,
                      std::source_location location = std::source_location::current())
@@ -59,6 +56,11 @@ namespace rei::net::http {
 
         auto is_http_error(const std::error_code& code) -> bool {
             return code.category() == http::make_error_code(http::error_code::bad_header).category();
+        }
+
+        // The peer left or went quiet, which happens and isn't worth a report.
+        auto is_peer_failure(const std::error_code& code) -> bool {
+            return code == net::error_code::connection_closed || code == net::error_code::timed_out;
         }
 
         // std::nullopt when the peer is gone and nothing should be sent.
@@ -404,11 +406,7 @@ namespace rei::net::http {
     }
 
     server::server(http::handler handler, http::server_options options)
-        : m_handler(std::move(handler)), m_options(std::move(options)) {
-        // A longer timeout is how to ask for none, and the socket would refuse it.
-        m_options.head_timeout = std::min(m_options.head_timeout, longest_timeout);
-        m_options.io_timeout = std::min(m_options.io_timeout, longest_timeout);
-    }
+        : m_handler(std::move(handler)), m_options(std::move(options)) {}
 
     auto server::_limits() const -> h1::parse_limits {
         return {
@@ -555,7 +553,7 @@ namespace rei::net::http {
                 session.idle = true;
             }
 
-            connection.deadline(std::chrono::steady_clock::now() + m_options.head_timeout);
+            connection.deadline(m_options.head_timeout.transform(http::deadline_after));
             connection.timeout(std::nullopt);
             const auto received = connection.read_head(request.m_head);
 
@@ -567,6 +565,8 @@ namespace rei::net::http {
             if (!received) {
                 if (is_http_error(received.error().code())) {
                     reject(*error_status(received.error()), http::request_head{});
+                } else if (!is_peer_failure(received.error().code())) {
+                    _report(received.error());
                 }
 
                 break;
@@ -613,8 +613,7 @@ namespace rei::net::http {
 
             if (auto written = write_response(connection, request.m_head, response, closing, head, buffer);
                 !written) {
-                const auto code = written.error().code();
-                if (code != net::error_code::connection_closed && code != net::error_code::timed_out) {
+                if (!is_peer_failure(written.error().code())) {
                     _report(written.error());
                 }
 

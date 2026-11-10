@@ -15,6 +15,16 @@
 #include "rei/net/socket.hpp"
 
 namespace rei::net::http {
+    // `timeout` from now, for connection::deadline. A sum past the clock's range stays at its last time
+    // point.
+    [[nodiscard]] inline auto deadline_after(std::chrono::milliseconds timeout) noexcept
+        -> std::chrono::steady_clock::time_point {
+        const auto now = std::chrono::steady_clock::now();
+        const auto latest = std::chrono::steady_clock::time_point::max();
+
+        return timeout < std::chrono::floor<std::chrono::milliseconds>(latest - now) ? now + timeout : latest;
+    }
+
     // Runs the HTTP/1 loops over a socket. It adds no fields and makes no keep-alive decisions.
     class connection {
       private:

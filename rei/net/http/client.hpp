@@ -17,7 +17,8 @@ namespace rei::net::http {
     } // namespace detail
 
     struct client_options {
-        std::chrono::milliseconds connect_timeout{std::chrono::seconds{30}};
+        // std::nullopt waits for as long as it takes.
+        std::optional<std::chrono::milliseconds> connect_timeout{std::chrono::seconds{30}};
         std::optional<std::chrono::milliseconds> io_timeout{std::chrono::seconds{60}};
         // A deadline for the whole exchange. For stream(), it ends with the head.
         std::optional<std::chrono::milliseconds> timeout;
@@ -26,7 +27,8 @@ namespace rei::net::http {
         std::size_t max_headers{100};
         std::uint64_t max_body_size{64uz * 1024 * 1024};
         std::size_t max_idle_per_host{4};
-        std::chrono::milliseconds idle_timeout{std::chrono::seconds{90}};
+        // std::nullopt keeps an idle connection until the server closes it.
+        std::optional<std::chrono::milliseconds> idle_timeout{std::chrono::seconds{90}};
 
         // Added to every request that doesn't set the same name.
         http::headers headers;
