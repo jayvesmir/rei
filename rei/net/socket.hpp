@@ -56,6 +56,9 @@ namespace rei::net {
             return m_backend.timeout();
         }
 
+        // Whether a receive would return at once: with data, with the end of the stream or with an error.
+        [[nodiscard]] auto readable() const noexcept -> bool { return m_backend.readable(); }
+
         auto close() -> std::expected<void, rei::error> { return m_backend.close(); }
 
         auto connect(const net::ip_endpoint& remote) -> std::expected<void, rei::error> {

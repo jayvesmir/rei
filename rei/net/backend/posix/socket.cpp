@@ -394,6 +394,18 @@ namespace rei::net::backend {
         return out;
     }
 
+    auto socket_backend::readable() const noexcept -> bool {
+        pollfd target{.fd = m_socket, .events = POLLIN, .revents = 0};
+
+        int result{};
+        do {
+            result = ::poll(&target, 1, 0);
+        } while (result == -1 && errno == EINTR);
+
+        // A closed socket and a failed poll count too: a receive wouldn't wait there either.
+        return !is_open() || result != 0;
+    }
+
     auto socket_backend::close() -> std::expected<void, rei::error> {
         const auto descriptor = std::exchange(m_socket, -1);
 

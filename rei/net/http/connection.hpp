@@ -104,6 +104,6 @@ namespace rei::net::http {
 
         // The peer closed the connection, or sent bytes that nothing has read. A client checks this
         // before its next request, whose response those bytes would otherwise pass for.
-        [[nodiscard]] auto stale() -> bool;
+        [[nodiscard]] auto stale() const noexcept -> bool { return m_begin < m_end || m_socket.readable(); }
     };
 } // namespace rei::net::http
