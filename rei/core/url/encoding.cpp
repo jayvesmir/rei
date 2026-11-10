@@ -49,7 +49,7 @@ namespace rei::core::detail {
                  }) {
                 for (auto byte = 0uz; byte < table.size(); byte++) {
                     if (in_encode_set(static_cast<char>(byte), set)) {
-                        table[byte] |= 1U << std::to_underlying(set);
+                        table[byte] |= 1u << std::to_underlying(set);
                     }
                 }
             }
@@ -57,10 +57,6 @@ namespace rei::core::detail {
             return table;
         }();
     } // namespace
-
-    auto ascii_iequals(std::string_view lhs, std::string_view rhs) -> bool {
-        return std::ranges::equal(lhs, rhs, {}, to_ascii_lower, to_ascii_lower);
-    }
 
     auto append_percent_encoded(std::string& output, char unit) -> void {
         constexpr std::string_view hex = "0123456789ABCDEF";
@@ -72,7 +68,7 @@ namespace rei::core::detail {
     }
 
     auto percent_encode(std::string& output, char unit, detail::encode_set set) -> void {
-        if (((encode_set_table[static_cast<std::uint8_t>(unit)] >> std::to_underlying(set)) & 1U) != 0) {
+        if (((encode_set_table[static_cast<std::uint8_t>(unit)] >> std::to_underlying(set)) & 1u) != 0) {
             detail::append_percent_encoded(output, unit);
         } else {
             output += unit;

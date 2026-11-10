@@ -79,6 +79,99 @@ cc_library(
 )
 
 cc_library(
+    name = "http",
+    include_prefix = "net",
+
+    srcs = [
+        "http/detail.hpp",
+
+        "http/body.cpp",
+        "http/framing.cpp",
+        "http/header.cpp",
+        "http/message.cpp",
+        "http/parse.cpp",
+        "http/write.cpp",
+    ],
+
+    hdrs = [
+        "http.hpp",
+        "http/error_code.hpp",
+        "http/h1.hpp",
+    ],
+
+    deps = [
+        "//rei/core:ascii",
+        "//rei/core:error",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"]
+)
+
+cc_library(
+    name = "http_connection",
+    include_prefix = "net",
+
+    srcs = ["http/connection.cpp"],
+    hdrs = ["http/connection.hpp"],
+
+    deps = [
+        "//rei/core:error",
+        ":common",
+        ":http",
+        ":socket",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"]
+)
+
+cc_library(
+    name = "http_server",
+    include_prefix = "net",
+
+    srcs = [
+        "http/router.cpp",
+        "http/server.cpp",
+    ],
+
+    hdrs = ["http/server.hpp"],
+
+    deps = [
+        "//rei/core:ascii",
+        "//rei/core:error",
+        ":common",
+        ":http",
+        ":http_connection",
+        ":socket",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"]
+)
+
+cc_library(
+    name = "http_client",
+    include_prefix = "net",
+
+    srcs = ["http/client.cpp"],
+    hdrs = ["http/client.hpp"],
+
+    deps = [
+        "//rei/core:ascii",
+        "//rei/core:error",
+        "//rei/core:url",
+        ":common",
+        ":http",
+        ":http_connection",
+        ":socket",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"]
+)
+
+cc_library(
     name = "net",
     include_prefix = "net",
 
@@ -86,6 +179,10 @@ cc_library(
     hdrs = [],
 
     deps = [
+        ":http",
+        ":http_client",
+        ":http_connection",
+        ":http_server",
         ":socket",
     ],
 

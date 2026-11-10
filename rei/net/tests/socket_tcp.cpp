@@ -30,18 +30,26 @@ namespace rei::net::tests {
         EXPECT_EQ(*client_peer, pair->listener.local_endpoint().value());
         EXPECT_NE(client_local->port, 0);
 
+        EXPECT_FALSE(pair->accepted.readable());
+
         auto sent = pair->client.send(tests::as_bytes("hello"));
         ASSERT_TRUE(sent) << sent.error();
-        EXPECT_EQ(*sent, 5U);
+        EXPECT_EQ(*sent, 5u);
 
-        auto received = tests::receive_exactly(pair->accepted, 5);
+        // What is left of a segment stays readable until it has been received.
+        auto first = tests::receive_exactly(pair->accepted, 1);
+        ASSERT_TRUE(first) << first.error();
+        EXPECT_TRUE(pair->accepted.readable());
+
+        auto received = tests::receive_exactly(pair->accepted, 4);
         ASSERT_TRUE(received) << received.error();
-        EXPECT_EQ(*received, "hello");
+        EXPECT_EQ(*first + *received, "hello");
+        EXPECT_FALSE(pair->accepted.readable());
 
         // An empty read must return 0 without blocking and without looking like a closed peer.
         auto empty = pair->accepted.receive({});
         ASSERT_TRUE(empty) << empty.error();
-        EXPECT_EQ(*empty, 0U);
+        EXPECT_EQ(*empty, 0u);
     }
 
     TEST(socket_tcp, ipv6_loopback_pair_exchanges_data) {
@@ -72,6 +80,7 @@ namespace rei::net::tests {
         auto received = pair->accepted.receive(buffer);
         ASSERT_TRUE(tests::has_error(received, net::error_code::connection_closed));
         EXPECT_EQ(received.error().code(), std::errc::not_connected);
+        EXPECT_TRUE(pair->accepted.readable());
 
         // The reset answering the first send may arrive after that send returned, so allow a few
         // attempts. Without MSG_NOSIGNAL this would kill the process instead of failing.

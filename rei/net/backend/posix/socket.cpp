@@ -15,6 +15,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
@@ -248,16 +249,20 @@ namespace rei::net::backend::detail {
                 receiver != nullptr ? reinterpret_cast<const sockaddr*>(&receiver->storage) : nullptr;
             const socklen_t size = receiver != nullptr ? receiver->size : 0;
 
+            // There is nearly always room in the send buffer, so waiting comes after a send that found none.
             ssize_t result{};
-            do {
+            while (true) {
+                result = ::sendto(descriptor, data.data(), data.size(),
+                                  detail::send_flags | (deadline ? MSG_DONTWAIT : 0), name, size);
+                if (result != -1 || !detail::should_retry(deadline.has_value())) {
+                    break;
+                }
+
                 auto ready = detail::wait_ready(descriptor, POLLOUT, deadline);
                 if (!ready) {
                     return std::unexpected(ready.error());
                 }
-
-                result = ::sendto(descriptor, data.data(), data.size(),
-                                  detail::send_flags | (deadline ? MSG_DONTWAIT : 0), name, size);
-            } while (result == -1 && detail::should_retry(deadline.has_value()));
+            }
             if (result == -1) {
                 return std::unexpected(
                     rei::error{detail::transfer_error_code(), "failed to send socket data"});
@@ -387,6 +392,18 @@ namespace rei::net::backend {
         }
 
         return out;
+    }
+
+    auto socket_backend::readable() const noexcept -> bool {
+        pollfd target{.fd = m_socket, .events = POLLIN, .revents = 0};
+
+        int result{};
+        do {
+            result = ::poll(&target, 1, 0);
+        } while (result == -1 && errno == EINTR);
+
+        // A closed socket and a failed poll count too: a receive wouldn't wait there either.
+        return !is_open() || result != 0;
     }
 
     auto socket_backend::close() -> std::expected<void, rei::error> {
@@ -640,6 +657,15 @@ namespace rei::net::backend {
         const int value = enabled ? 1 : 0;
         if (::setsockopt(m_socket, SOL_SOCKET, SO_REUSEADDR, &value, sizeof(value)) == -1) {
             return std::unexpected(rei::error{detail::errno_code(), "failed to set socket address reuse"});
+        }
+
+        return {};
+    }
+
+    auto socket_backend::set_no_delay(bool enabled) -> std::expected<void, rei::error> {
+        const int value = enabled ? 1 : 0;
+        if (::setsockopt(m_socket, IPPROTO_TCP, TCP_NODELAY, &value, sizeof(value)) == -1) {
+            return std::unexpected(rei::error{detail::errno_code(), "failed to set socket no-delay mode"});
         }
 
         return {};

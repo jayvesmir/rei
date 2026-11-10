@@ -197,7 +197,7 @@ namespace rei::core::detail {
                         std::optional<std::uint16_t> ipv4_piece;
                         while (is_ascii_digit(unit())) {
                             auto number = static_cast<std::uint16_t>(unit() - '0');
-                            if (ipv4_piece == 0U) {
+                            if (ipv4_piece == 0u) {
                                 return std::unexpected(
                                     rei::error{core::make_error_code(core::error_code::invalid_argument),
                                                "IPv6 address has an IPv4 part with a leading zero"});
