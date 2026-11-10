@@ -529,6 +529,19 @@ namespace rei::net::tests {
                                      std::errc::invalid_argument));
     }
 
+    TEST(http_client_server, the_longest_timeouts_stand_for_none) {
+        const test_server server{
+            [](http::request&) -> http::response { return {.body = "ok"}; },
+            {.head_timeout = std::chrono::milliseconds::max(),
+             .io_timeout = std::chrono::milliseconds::max()},
+        };
+        http::client client;
+
+        const auto response = client.send({.url = server.url("/")});
+        ASSERT_TRUE(response) << response.error();
+        EXPECT_EQ(response->body.text(), "ok");
+    }
+
     TEST(http_client_server, stop_closes_idle_connections_and_lets_a_running_request_announce_it) {
         http::server* stopped = nullptr;
         http::server server{[&](http::request&) -> http::response {

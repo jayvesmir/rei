@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <expected>
 #include <format>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -47,6 +48,8 @@ namespace rei::net::http {
         constexpr auto copy_size = 16uz * 1024;
         constexpr auto linger_wait = 100ms;
         constexpr auto linger_limit = 64uz * 1024;
+        // What a socket can wait for, about 24 days.
+        constexpr auto longest_timeout = std::chrono::milliseconds{std::numeric_limits<int>::max()};
 
         auto failure(http::error_code code, std::string detail,
                      std::source_location location = std::source_location::current())
@@ -401,7 +404,11 @@ namespace rei::net::http {
     }
 
     server::server(http::handler handler, http::server_options options)
-        : m_handler(std::move(handler)), m_options(std::move(options)) {}
+        : m_handler(std::move(handler)), m_options(std::move(options)) {
+        // A longer timeout is how to ask for none, and the socket would refuse it.
+        m_options.head_timeout = std::min(m_options.head_timeout, longest_timeout);
+        m_options.io_timeout = std::min(m_options.io_timeout, longest_timeout);
+    }
 
     auto server::_limits() const -> h1::parse_limits {
         return {
