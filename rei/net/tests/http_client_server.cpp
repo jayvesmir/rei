@@ -275,6 +275,9 @@ namespace rei::net::tests {
                 // The code of a failed body read, but from elsewhere, such as a request to another server.
                 return std::unexpected(rei::error{net::make_error_code(net::error_code::timed_out), "boom"});
             }));
+        ASSERT_TRUE(router.route("POST /inject", [](http::request&) -> http::response {
+            return {.headers = {{.name = "X-Echo", .value = "a\r\nX-Injected: b"}}};
+        }));
 
         const test_server server{router,
                                  {
@@ -317,8 +320,14 @@ namespace rei::net::tests {
         ASSERT_TRUE(failed) << failed.error();
         EXPECT_EQ(failed->status, http::status::internal_server_error);
 
+        // A response that can't be written is the handler's failure as well.
+        const auto refused = client.send({.method = "POST", .url = server.url("/inject")});
+        ASSERT_TRUE(refused) << refused.error();
+        EXPECT_EQ(refused->status, http::status::internal_server_error);
+        EXPECT_FALSE(refused->headers.find("x-injected"));
+
         const std::scoped_lock lock{mutex};
-        EXPECT_EQ(errors, std::vector<std::string>{"boom"});
+        EXPECT_EQ(errors, (std::vector<std::string>{"boom", "invalid header value"}));
     }
 
     TEST(http_client_server, expect_continue_is_answered_on_the_first_body_read) {

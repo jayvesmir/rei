@@ -615,6 +615,10 @@ namespace rei::net::http {
                 !written) {
                 if (!is_peer_failure(written.error().code())) {
                     _report(written.error());
+
+                    // A head that was refused has sent nothing, so the client can still be answered. Past
+                    // the head, the connection won't start another message and this does nothing.
+                    reject(http::status::internal_server_error, request.m_head);
                 }
 
                 break;
