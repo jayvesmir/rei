@@ -85,6 +85,7 @@ namespace rei::net::tests {
                  status_case{
                      .line = "HTTP/1.1 299 Caf\xE9 \t closed",
                      .version = http::version::http_1_1,
+                     // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
                      .status = http::status{299},
                      .reason = "Caf\xE9 \t closed",
                  },
@@ -226,6 +227,7 @@ namespace rei::net::tests {
                      "HTTP/1.1 404 Not Found\r\n\r\n",
                  },
                  {{.status = http::status::not_found, .reason = "Nope"}, "HTTP/1.1 404 Nope\r\n\r\n"},
+                 // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
                  {{.status = http::status{299}}, "HTTP/1.1 299 \r\n\r\n"},
              }) {
             std::vector<std::byte> out;
@@ -246,6 +248,7 @@ namespace rei::net::tests {
                  http::request_head{.method = "", .target = "/"},
                  http::request_head{.method = "GET", .target = "/a b"},
                  http::request_head{.method = "GET", .target = ""},
+                 // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
                  http::request_head{.method = "GET", .target = "/", .version = http::version{2}},
              }) {
             EXPECT_TRUE(
@@ -254,10 +257,12 @@ namespace rei::net::tests {
         }
 
         for (const auto& response : {
+                 // NOLINTBEGIN(clang-analyzer-optin.core.EnumCastOutOfRange)
                  http::response_head{.status = http::status{99}},
                  http::response_head{.status = http::status{1000}},
                  http::response_head{.reason = "OK\r\nEvil: 1"},
                  http::response_head{.version = http::version{2}},
+                 // NOLINTEND(clang-analyzer-optin.core.EnumCastOutOfRange)
              }) {
             EXPECT_TRUE(
                 tests::has_error(h1::serialize_head(response, out), core::error_code::invalid_argument))
