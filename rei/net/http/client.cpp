@@ -131,8 +131,8 @@ namespace rei::net::http {
                 timeout = std::min(timeout, left);
             }
 
-            // Names try IPv4 first.
-            std::optional<rei::error> first_error;
+            // Names try IPv4 first, then IPv6. A failed connect is reported over a failed lookup.
+            std::optional<rei::error> error;
 
             for (const auto domain : {net::communication_domain::ipv4, net::communication_domain::ipv6}) {
                 if (where.ipv6 && domain == net::communication_domain::ipv4) {
@@ -142,7 +142,7 @@ namespace rei::net::http {
                 auto endpoint = net::resolve({.address = where.address, .port = where.port}, domain,
                                              net::transport_protocol::tcp);
                 if (!endpoint) {
-                    first_error = first_error.value_or(endpoint.error());
+                    error = error.value_or(endpoint.error());
                     continue;
                 }
 
@@ -153,14 +153,19 @@ namespace rei::net::http {
 
                 auto connected = socket->set_timeout(timeout).and_then(
                     [&] -> std::expected<void, rei::error> { return socket->connect(*endpoint); });
-                if (!connected) {
+                if (connected) {
+                    return std::move(*socket);
+                }
+
+                // A timeout used up the time there was to connect.
+                if (connected.error().code() == net::error_code::timed_out) {
                     return std::unexpected(connected.error());
                 }
 
-                return std::move(*socket);
+                error = connected.error();
             }
 
-            return std::unexpected(*first_error);
+            return std::unexpected(*error);
         }
 
         auto take_idle(detail::pool& pool, std::string_view origin, std::chrono::milliseconds idle_timeout)
