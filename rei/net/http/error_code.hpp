@@ -14,6 +14,7 @@ namespace rei::net::http {
         too_many_headers,
         unsupported_transfer_coding,
         unsupported_version,
+        body_too_large,
     };
 
     namespace detail {
@@ -40,6 +41,8 @@ namespace rei::net::http {
                     return "unsupported transfer coding";
                 case error_code::unsupported_version:
                     return "unsupported HTTP version";
+                case error_code::body_too_large:
+                    return "message body too large";
                 }
 
                 return "unknown HTTP error";
