@@ -15,6 +15,16 @@ cc_library(
 )
 
 cc_library(
+    name = "ascii",
+    include_prefix = "core",
+
+    hdrs = ["ascii.hpp"],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
     name = "utf8",
     include_prefix = "core",
 
@@ -77,6 +87,7 @@ cc_library(
     include_prefix = "core",
 
     deps = [
+        ":ascii",
         ":error",
         ":url",
         ":utf8",
