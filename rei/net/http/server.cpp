@@ -376,7 +376,7 @@ namespace rei::net::http {
             return false;
         }
 
-        std::array<std::byte, 4096> sink{};
+        std::array<std::byte, 4096> sink;
         for (auto drained = 0uz; drained <= drain_limit;) {
             const auto read = m_connection->read_body(sink);
             if (!read) {
