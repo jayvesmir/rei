@@ -12,6 +12,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -43,12 +44,13 @@ namespace rei::net::http {
         std::uint64_t m_body_received{};
         std::vector<std::byte> m_body;
         bool m_body_buffered{};
-        bool m_body_failed{};
+        std::error_code m_body_error;
         bool m_continue_pending{};
 
         request() = default;
 
         auto _start() -> std::optional<http::status>;
+        auto _fail(rei::error error) -> std::unexpected<rei::error>;
         auto _drain() -> bool;
 
       public:

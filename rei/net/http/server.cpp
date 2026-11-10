@@ -10,7 +10,6 @@
 #include <mutex>
 #include <optional>
 #include <ranges>
-#include <source_location>
 #include <span>
 #include <string>
 #include <string_view>
@@ -47,12 +46,6 @@ namespace rei::net::http {
         constexpr auto copy_size = 16uz * 1024;
         constexpr auto linger_wait = 100ms;
         constexpr auto linger_limit = 64uz * 1024;
-
-        auto failure(http::error_code code, std::string detail,
-                     std::source_location location = std::source_location::current())
-            -> std::unexpected<rei::error> {
-            return std::unexpected(rei::error{http::make_error_code(code), std::move(detail), location});
-        }
 
         auto is_http_error(const std::error_code& code) -> bool {
             return code.category() == http::make_error_code(http::error_code::bad_header).category();
@@ -269,7 +262,7 @@ namespace rei::net::http {
         m_decoded.clear();
         m_body.clear();
         m_body_buffered = false;
-        m_body_failed = false;
+        m_body_error = {};
         m_body_received = 0;
         m_continue_pending = false;
 
@@ -311,6 +304,15 @@ namespace rei::net::http {
         return std::nullopt;
     }
 
+    // Remembers the first failure to read the body, so the server can tell when a handler passes it on.
+    auto request::_fail(rei::error error) -> std::unexpected<rei::error> {
+        if (!m_body_error) {
+            m_body_error = error.code();
+        }
+
+        return std::unexpected(std::move(error));
+    }
+
     auto request::read_body(std::span<std::byte> out) -> std::expected<std::size_t, rei::error> {
         if (m_continue_pending) {
             m_continue_pending = false;
@@ -320,17 +322,16 @@ namespace rei::net::http {
                 m_connection->write_head(interim, m_head.method)
                     .and_then([this] -> std::expected<void, rei::error> { return m_connection->finish(); });
             if (!answered) {
-                return std::unexpected(answered.error());
+                return _fail(answered.error());
             }
         }
 
         auto read = m_connection->read_body(out);
-        if (read) {
-            m_body_received += *read;
-        } else {
-            m_body_failed = true;
+        if (!read) {
+            return _fail(read.error());
         }
 
+        m_body_received += *read;
         return read;
     }
 
@@ -340,8 +341,8 @@ namespace rei::net::http {
         }
 
         const auto too_large = [this] -> std::unexpected<rei::error> {
-            m_body_failed = true;
-            return failure(http::error_code::body_too_large, "request body exceeds max_body_size");
+            return _fail(rei::error{http::make_error_code(http::error_code::body_too_large),
+                                    "request body exceeds max_body_size"});
         };
         if (m_body_size && m_max_body_size && *m_body_size - m_body_received > *m_max_body_size) {
             return too_large();
@@ -592,10 +593,10 @@ namespace rei::net::http {
             if (result) {
                 response = std::move(*result);
             } else {
-                // Only a failed read of the request's body says something about the client. The same
-                // code from elsewhere, such as a request the handler made, is the handler's failure.
-                const auto status = request.m_body_failed ? error_status(result.error())
-                                                          : http::status::internal_server_error;
+                // Only the request's own failure, passed on by the handler, says something about the
+                // client. Another error is the handler's, even with a code that a body read fails with.
+                const auto own = request.m_body_error && request.m_body_error == result.error().code();
+                const auto status = own ? error_status(result.error()) : http::status::internal_server_error;
                 if (!status) {
                     break;
                 }
