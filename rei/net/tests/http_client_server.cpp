@@ -492,10 +492,11 @@ namespace rei::net::tests {
                                      http::error_code::too_many_redirects));
     }
 
-    TEST(http_client_server, redirects_to_another_origin_drop_credentials) {
+    TEST(http_client_server, redirects_to_another_origin_drop_credentials_and_host) {
         const test_server target{[](http::request& request) -> http::response {
-            return {.body = std::format("{} {}", request.header("authorization").value_or("none"),
-                                        request.header("user-agent").value_or("none"))};
+            return {.body = std::format("{} {} {}", request.header("authorization").value_or("none"),
+                                        request.header("user-agent").value_or("none"),
+                                        request.header("host").value_or("none"))};
         }};
         const test_server origin{[&](http::request&) -> http::response {
             return {.status = http::status::found,
@@ -507,9 +508,10 @@ namespace rei::net::tests {
             .headers = {{.name = "Authorization", .value = "secret"}, {.name = "User-Agent", .value = "rei"}},
         }};
 
-        const auto response = client.send({.url = origin.url("/")});
+        const auto response =
+            client.send({.url = origin.url("/"), .headers = {{.name = "Host", .value = "virtual"}}});
         ASSERT_TRUE(response) << response.error();
-        EXPECT_EQ(response->body.text(), "none rei");
+        EXPECT_EQ(response->body.text(), std::format("none rei 127.0.0.1:{}", target.port()));
     }
 
     TEST(http_client_server, client_reports_timeouts_and_unsupported_urls) {

@@ -401,7 +401,7 @@ namespace rei::net::http {
             }
 
             if (from.scheme() != next.scheme() || from.host() != next.host() || from.port() != next.port()) {
-                for (const auto* const name : {"Authorization", "Cookie", "Proxy-Authorization"}) {
+                for (const auto* const name : {"Authorization", "Cookie", "Host", "Proxy-Authorization"}) {
                     request.headers.remove(name);
                 }
             }
