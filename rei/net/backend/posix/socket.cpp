@@ -249,16 +249,20 @@ namespace rei::net::backend::detail {
                 receiver != nullptr ? reinterpret_cast<const sockaddr*>(&receiver->storage) : nullptr;
             const socklen_t size = receiver != nullptr ? receiver->size : 0;
 
+            // There is nearly always room in the send buffer, so waiting comes after a send that found none.
             ssize_t result{};
-            do {
+            while (true) {
+                result = ::sendto(descriptor, data.data(), data.size(),
+                                  detail::send_flags | (deadline ? MSG_DONTWAIT : 0), name, size);
+                if (result != -1 || !detail::should_retry(deadline.has_value())) {
+                    break;
+                }
+
                 auto ready = detail::wait_ready(descriptor, POLLOUT, deadline);
                 if (!ready) {
                     return std::unexpected(ready.error());
                 }
-
-                result = ::sendto(descriptor, data.data(), data.size(),
-                                  detail::send_flags | (deadline ? MSG_DONTWAIT : 0), name, size);
-            } while (result == -1 && detail::should_retry(deadline.has_value()));
+            }
             if (result == -1) {
                 return std::unexpected(
                     rei::error{detail::transfer_error_code(), "failed to send socket data"});
