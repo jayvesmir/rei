@@ -116,6 +116,11 @@ namespace rei::net {
             return m_backend.set_reuse_address(enabled);
         }
 
+        // Sends small writes at once instead of holding them back for the peer's ACK (TCP_NODELAY).
+        auto set_no_delay(bool enabled) -> std::expected<void, rei::error> {
+            return m_backend.set_no_delay(enabled);
+        }
+
         // Affects connect, accept, send and receive calls on a blocking socket; std::nullopt waits
         // indefinitely.
         auto set_timeout(std::optional<std::chrono::milliseconds> timeout)

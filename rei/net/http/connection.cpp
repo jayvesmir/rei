@@ -32,7 +32,11 @@ namespace rei::net::http {
     } // namespace
 
     connection::connection(net::socket socket, const h1::parse_limits& limits) noexcept
-        : m_socket(std::move(socket)), m_limits(limits) {}
+        : m_socket(std::move(socket)), m_limits(limits) {
+        // A head and its body can go out in separate sends, and Nagle's algorithm would hold the second
+        // one back until the peer's delayed ACK.
+        (void)m_socket.set_no_delay(true);
+    }
 
     auto connection::_arm() -> std::expected<void, rei::error> {
         auto wait = m_timeout;

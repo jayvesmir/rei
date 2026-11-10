@@ -69,6 +69,7 @@ namespace rei::net::backend {
 
         auto set_non_blocking(bool enabled) -> std::expected<void, rei::error>;
         auto set_reuse_address(bool enabled) -> std::expected<void, rei::error>;
+        auto set_no_delay(bool enabled) -> std::expected<void, rei::error>;
         auto set_timeout(std::optional<std::chrono::milliseconds> timeout) -> std::expected<void, rei::error>;
     };
 } // namespace rei::net::backend

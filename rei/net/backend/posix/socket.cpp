@@ -15,6 +15,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
@@ -640,6 +641,15 @@ namespace rei::net::backend {
         const int value = enabled ? 1 : 0;
         if (::setsockopt(m_socket, SOL_SOCKET, SO_REUSEADDR, &value, sizeof(value)) == -1) {
             return std::unexpected(rei::error{detail::errno_code(), "failed to set socket address reuse"});
+        }
+
+        return {};
+    }
+
+    auto socket_backend::set_no_delay(bool enabled) -> std::expected<void, rei::error> {
+        const int value = enabled ? 1 : 0;
+        if (::setsockopt(m_socket, IPPROTO_TCP, TCP_NODELAY, &value, sizeof(value)) == -1) {
+            return std::unexpected(rei::error{detail::errno_code(), "failed to set socket no-delay mode"});
         }
 
         return {};
