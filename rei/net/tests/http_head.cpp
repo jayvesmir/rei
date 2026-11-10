@@ -195,6 +195,11 @@ namespace rei::net::tests {
         EXPECT_EQ(head.headers.size(), 2uz);
         EXPECT_TRUE(tests::has_error(h1::parse_head(bytes, head, {.max_headers = 1}),
                                      http::error_code::too_many_headers));
+
+        const auto unlimited =
+            h1::parse_head(bytes, head, {.max_head_size = std::nullopt, .max_headers = std::nullopt});
+        ASSERT_TRUE(unlimited) << unlimited.error();
+        EXPECT_EQ(*unlimited, input.size());
     }
 
     TEST(http_head, written_heads_parse_back) {

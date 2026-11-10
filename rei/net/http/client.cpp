@@ -491,8 +491,9 @@ namespace rei::net::http {
             return response;
         }
 
+        const auto limit = m_options.max_body_size;
         const auto size = response->body.size();
-        if (size && *size > m_options.max_body_size) {
+        if (limit && size && *size > *limit) {
             return failure(http::make_error_code(http::error_code::body_too_large),
                            "response body exceeds max_body_size");
         }
@@ -501,7 +502,9 @@ namespace rei::net::http {
         auto filled = 0uz;
         while (true) {
             if (filled == bytes.size()) {
-                const auto initial = size ? static_cast<std::size_t>(*size) + 1 : copy_size;
+                // The size a server declares is trusted up to the limit. Without one, the buffer only
+                // grows with what has arrived.
+                const auto initial = limit && size ? static_cast<std::size_t>(*size) + 1 : copy_size;
                 bytes.resize(std::max(bytes.size() * 2, initial));
             }
 
@@ -514,7 +517,7 @@ namespace rei::net::http {
             }
 
             filled += *read;
-            if (filled > m_options.max_body_size) {
+            if (limit && filled > *limit) {
                 return failure(http::make_error_code(http::error_code::body_too_large),
                                "response body exceeds max_body_size");
             }

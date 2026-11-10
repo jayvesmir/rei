@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <limits>
 #include <optional>
 #include <source_location>
 #include <span>
@@ -96,8 +97,10 @@ namespace rei::net::http {
         m_end -= m_begin;
         m_begin = 0;
 
-        // Saturates, so the largest max_head_size means no limit instead of wrapping around to a small one.
-        const auto capacity = std::max(m_limits.max_head_size, m_limits.max_head_size + body_window);
+        // Without a limit the buffer grows as far as the head does. The sum stays at the largest size
+        // instead of wrapping around to a small one.
+        const auto head_size = m_limits.max_head_size.value_or(std::numeric_limits<std::size_t>::max());
+        const auto capacity = std::max(head_size, head_size + body_window);
         if (m_input.empty()) {
             m_input.resize(std::min(initial_input_size, capacity));
         }

@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <expected>
 #include <format>
-#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
@@ -91,9 +90,7 @@ namespace rei::net::tests {
         ASSERT_TRUE(pair) << pair.error();
         ASSERT_EQ(pair->client.send(tests::as_bytes(input)), input.size());
 
-        // The largest limit stands for none.
-        http::connection connection{std::move(pair->accepted),
-                                    {.max_head_size = std::numeric_limits<std::size_t>::max()}};
+        http::connection connection{std::move(pair->accepted), {.max_head_size = std::nullopt}};
         http::request_head head;
 
         const auto received = connection.read_head(head);

@@ -14,9 +14,10 @@
 // The HTTP/1.x wire format. Nothing here does I/O.
 
 namespace rei::net::http::h1 {
+    // std::nullopt lifts a limit.
     struct parse_limits {
-        std::size_t max_head_size{16uz * 1024};
-        std::size_t max_headers{100};
+        std::optional<std::size_t> max_head_size{16uz * 1024};
+        std::optional<std::size_t> max_headers{100};
     };
 
     // The head's size in bytes, or std::nullopt until `input` holds a complete head. On success, the

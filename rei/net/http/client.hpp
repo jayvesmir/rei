@@ -23,9 +23,10 @@ namespace rei::net::http {
         // A deadline for the whole exchange. For stream(), it ends with the head.
         std::optional<std::chrono::milliseconds> timeout;
         std::uint32_t max_redirects{};
-        std::size_t max_head_size{128uz * 1024};
-        std::size_t max_headers{100};
-        std::uint64_t max_body_size{64uz * 1024 * 1024};
+        // std::nullopt lifts a limit.
+        std::optional<std::size_t> max_head_size{128uz * 1024};
+        std::optional<std::size_t> max_headers{100};
+        std::optional<std::uint64_t> max_body_size{64uz * 1024 * 1024};
         std::size_t max_idle_per_host{4};
         // std::nullopt keeps an idle connection until the server closes it.
         std::optional<std::chrono::milliseconds> idle_timeout{std::chrono::seconds{90}};

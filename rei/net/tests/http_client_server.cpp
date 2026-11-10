@@ -540,6 +540,38 @@ namespace rei::net::tests {
                                      std::errc::invalid_argument));
     }
 
+    TEST(http_client_server, limits_are_optional) {
+        const test_server server{
+            [](http::request& request) -> std::expected<http::response, rei::error> {
+                return request.text().transform([&](std::string_view text) -> http::response {
+                    http::response echoed{.body = text};
+                    for (const auto& field : request.head().headers) {
+                        echoed.headers.add(field.name, field.value);
+                    }
+
+                    return echoed;
+                });
+            },
+            {.max_head_size = std::nullopt, .max_headers = std::nullopt, .max_body_size = std::nullopt},
+        };
+        http::client client{{
+            .max_head_size = std::nullopt,
+            .max_headers = std::nullopt,
+            .max_body_size = std::nullopt,
+        }};
+
+        // More fields and a longer head than either side takes by default.
+        http::client_request request{.method = "POST", .url = server.url("/"), .body = "hello"};
+        for (auto i = 0; i < 300; i++) {
+            request.headers.add(std::format("X-{}", i), std::string(500, 'x'));
+        }
+
+        const auto response = client.send(std::move(request));
+        ASSERT_TRUE(response) << response.error();
+        EXPECT_EQ(response->body.text(), "hello");
+        EXPECT_EQ(response->headers.find("x-299"), std::string(500, 'x'));
+    }
+
     TEST(http_client_server, timeouts_are_optional_and_one_the_socket_refuses_is_reported) {
         const auto handler = [](http::request&) -> http::response { return {.body = "ok"}; };
 

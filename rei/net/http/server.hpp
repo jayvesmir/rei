@@ -38,7 +38,7 @@ namespace rei::net::http {
         net::ip_endpoint m_peer;
 
         http::connection* m_connection{};
-        std::uint64_t m_max_body_size{};
+        std::optional<std::uint64_t> m_max_body_size;
         std::optional<std::uint64_t> m_body_size;
         std::uint64_t m_body_received{};
         std::vector<std::byte> m_body;
@@ -109,9 +109,10 @@ namespace rei::net::http {
     };
 
     struct server_options {
-        std::size_t max_head_size{128uz * 1024};
-        std::size_t max_headers{256};
-        std::uint64_t max_body_size{1024uz * 1024 * 1024};
+        // std::nullopt lifts a limit.
+        std::optional<std::size_t> max_head_size{128uz * 1024};
+        std::optional<std::size_t> max_headers{256};
+        std::optional<std::uint64_t> max_body_size{1024uz * 1024 * 1024};
         // std::nullopt waits for as long as it takes.
         std::optional<std::chrono::milliseconds> head_timeout{std::chrono::seconds{30}};
         std::optional<std::chrono::milliseconds> io_timeout{std::chrono::seconds{60}};

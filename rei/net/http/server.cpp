@@ -343,7 +343,7 @@ namespace rei::net::http {
             m_body_failed = true;
             return failure(http::error_code::body_too_large, "request body exceeds max_body_size");
         };
-        if (m_body_size && *m_body_size - m_body_received > m_max_body_size) {
+        if (m_body_size && m_max_body_size && *m_body_size - m_body_received > *m_max_body_size) {
             return too_large();
         }
 
@@ -362,7 +362,7 @@ namespace rei::net::http {
             }
 
             filled += *read;
-            if (filled > m_max_body_size) {
+            if (m_max_body_size && filled > *m_max_body_size) {
                 return too_large();
             }
         }

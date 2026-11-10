@@ -131,10 +131,10 @@ namespace rei::net::http::h1 {
         auto parse(std::span<const std::byte> input, Head& head, const h1::parse_limits& limits)
             -> std::expected<std::optional<std::size_t>, rei::error> {
             const std::string_view text{reinterpret_cast<const char*>(input.data()),
-                                        std::min(input.size(), limits.max_head_size)};
+                                        std::min(input.size(), limits.max_head_size.value_or(input.size()))};
 
             const auto incomplete = [&] -> std::expected<std::optional<std::size_t>, rei::error> {
-                if (input.size() >= limits.max_head_size) {
+                if (limits.max_head_size && input.size() >= *limits.max_head_size) {
                     return detail::failure(http::error_code::head_too_large, "head exceeds the size limit");
                 }
 
@@ -171,7 +171,7 @@ namespace rei::net::http::h1 {
                     return line_end + 1;
                 }
 
-                if (head.headers.size() == limits.max_headers) {
+                if (limits.max_headers && head.headers.size() == *limits.max_headers) {
                     return detail::failure(http::error_code::too_many_headers, "too many headers");
                 }
 
