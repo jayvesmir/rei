@@ -20,8 +20,9 @@
 
 namespace rei::net::http {
     namespace {
-        constexpr auto initial_input_size = 16uz * 1024;
         constexpr auto body_window = 16uz * 1024;
+        // Room for a head of up to 16 KB and the body window after it, so that few heads grow the buffer.
+        constexpr auto initial_input_size = body_window + (16uz * 1024);
         constexpr auto coalesce_size = 16uz * 1024;
 
         auto misuse(std::string detail, std::source_location location = std::source_location::current())

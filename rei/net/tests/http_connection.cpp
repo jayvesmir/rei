@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstddef>
 #include <expected>
+#include <format>
 #include <span>
 #include <string>
 #include <string_view>
@@ -77,6 +78,29 @@ namespace rei::net::tests {
         ASSERT_TRUE(body) << body.error();
         EXPECT_EQ(*body, "abc");
         EXPECT_TRUE(connection.reusable());
+    }
+
+    TEST(http_connection, grows_its_buffer_for_a_large_head_and_keeps_what_follows) {
+        // More than the buffer starts with, so the head's bytes move while they arrive.
+        const auto cookie = std::string(40uz * 1024, 'c');
+        const auto input =
+            std::format("POST /upload HTTP/1.1\r\nCookie: {}\r\nContent-Length: 5\r\n\r\nhello", cookie);
+
+        auto pair = tests::make_tcp_pair();
+        ASSERT_TRUE(pair) << pair.error();
+        ASSERT_EQ(pair->client.send(tests::as_bytes(input)), input.size());
+
+        http::connection connection{std::move(pair->accepted), {.max_head_size = 64uz * 1024}};
+        http::request_head head;
+
+        const auto received = connection.read_head(head);
+        ASSERT_TRUE(received) << received.error();
+        EXPECT_EQ(head.target, "/upload");
+        EXPECT_EQ(http::find_header(head.headers, "cookie"), cookie);
+
+        const auto body = read_whole_body(connection, 64);
+        ASSERT_TRUE(body) << body.error();
+        EXPECT_EQ(*body, "hello");
     }
 
     TEST(http_connection, writes_bodies_that_match_their_framing) {
