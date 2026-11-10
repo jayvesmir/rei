@@ -5,6 +5,9 @@ cc_test(
     size = "small",
 
     srcs = [
+        "http_body.cpp",
+        "http_framing.cpp",
+        "http_head.cpp",
         "resolve.cpp",
         "socket_lifecycle.cpp",
         "socket_tcp.cpp",

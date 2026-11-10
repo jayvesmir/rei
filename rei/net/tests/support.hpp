@@ -47,6 +47,10 @@ namespace rei::net::tests {
         return std::as_bytes(std::span(text));
     }
 
+    inline auto as_text(std::span<const std::byte> bytes) -> std::string_view {
+        return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
+    }
+
     inline auto loopback(net::communication_domain domain) -> net::ip_endpoint {
         return {.address = domain == net::communication_domain::ipv4 ? "127.0.0.1" : "::1", .port = 0};
     }
