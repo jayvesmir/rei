@@ -264,6 +264,7 @@ namespace rei::net::http {
         m_decoded.clear();
         m_body.clear();
         m_body_buffered = false;
+        m_body_failed = false;
         m_body_received = 0;
         m_continue_pending = false;
 
@@ -321,6 +322,8 @@ namespace rei::net::http {
         auto read = m_connection->read_body(out);
         if (read) {
             m_body_received += *read;
+        } else {
+            m_body_failed = true;
         }
 
         return read;
@@ -330,8 +333,13 @@ namespace rei::net::http {
         if (m_body_buffered) {
             return m_body;
         }
-        if (m_body_size && *m_body_size - m_body_received > m_max_body_size) {
+
+        const auto too_large = [this] -> std::unexpected<rei::error> {
+            m_body_failed = true;
             return failure(http::error_code::body_too_large, "request body exceeds max_body_size");
+        };
+        if (m_body_size && *m_body_size - m_body_received > m_max_body_size) {
+            return too_large();
         }
 
         auto filled = 0uz;
@@ -350,7 +358,7 @@ namespace rei::net::http {
 
             filled += *read;
             if (filled > m_max_body_size) {
-                return failure(http::error_code::body_too_large, "request body exceeds max_body_size");
+                return too_large();
             }
         }
 
@@ -577,7 +585,10 @@ namespace rei::net::http {
             if (result) {
                 response = std::move(*result);
             } else {
-                const auto status = error_status(result.error());
+                // Only a failed read of the request's body says something about the client. The same
+                // code from elsewhere, such as a request the handler made, is the handler's failure.
+                const auto status = request.m_body_failed ? error_status(result.error())
+                                                          : http::status::internal_server_error;
                 if (!status) {
                     break;
                 }

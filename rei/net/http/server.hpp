@@ -43,6 +43,7 @@ namespace rei::net::http {
         std::uint64_t m_body_received{};
         std::vector<std::byte> m_body;
         bool m_body_buffered{};
+        bool m_body_failed{};
         bool m_continue_pending{};
 
         request() = default;

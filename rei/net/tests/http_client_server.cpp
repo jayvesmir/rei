@@ -16,7 +16,6 @@
 #include "gtest/gtest.h"
 
 #include "rei/core/error.hpp"
-#include "rei/core/error_code.hpp"
 #include "rei/net/endpoint.hpp"
 #include "rei/net/error_code.hpp"
 #include "rei/net/http.hpp"
@@ -272,7 +271,8 @@ namespace rei::net::tests {
             }));
         ASSERT_TRUE(
             router.route("POST /fail", [](http::request&) -> std::expected<http::response, rei::error> {
-                return std::unexpected(rei::error{core::make_error_code(core::error_code::unknown), "boom"});
+                // The code of a failed body read, but from elsewhere, such as a request to another server.
+                return std::unexpected(rei::error{net::make_error_code(net::error_code::timed_out), "boom"});
             }));
 
         const test_server server{router,
