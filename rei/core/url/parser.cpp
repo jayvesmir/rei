@@ -44,12 +44,12 @@ namespace rei::core::detail {
         }
 
         auto is_single_dot_segment(std::string_view segment) -> bool {
-            return segment == "." || detail::ascii_iequals(segment, "%2e");
+            return segment == "." || core::ascii_iequals(segment, "%2e");
         }
 
         auto is_double_dot_segment(std::string_view segment) -> bool {
-            return segment == ".." || detail::ascii_iequals(segment, ".%2e") ||
-                   detail::ascii_iequals(segment, "%2e.") || detail::ascii_iequals(segment, "%2e%2e");
+            return segment == ".." || core::ascii_iequals(segment, ".%2e") ||
+                   core::ascii_iequals(segment, "%2e.") || core::ascii_iequals(segment, "%2e%2e");
         }
     } // namespace
 

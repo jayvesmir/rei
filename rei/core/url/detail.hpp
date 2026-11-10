@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 
+#include "rei/core/ascii.hpp"
 #include "rei/core/error.hpp"
 #include "rei/core/url.hpp"
 
@@ -21,9 +22,6 @@ namespace rei::core::detail {
     constexpr auto is_ascii_alphanumeric(std::int32_t unit) -> bool {
         return is_ascii_digit(unit) || is_ascii_alpha(unit);
     }
-    constexpr auto to_ascii_lower(std::int32_t unit) -> char {
-        return static_cast<char>(unit >= 'A' && unit <= 'Z' ? unit + ('a' - 'A') : unit);
-    }
 
     enum class encode_set {
         c0_control,
@@ -35,7 +33,6 @@ namespace rei::core::detail {
     };
 
     // url/encoding.cpp
-    auto ascii_iequals(std::string_view lhs, std::string_view rhs) -> bool;
     auto append_percent_encoded(std::string& output, char unit) -> void;
     auto percent_encode(std::string& output, char unit, detail::encode_set set) -> void;
     auto percent_encode(std::string_view input, detail::encode_set set) -> std::string;

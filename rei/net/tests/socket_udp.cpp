@@ -21,21 +21,21 @@ namespace rei::net::tests {
         EXPECT_EQ(client->peer_endpoint().value(), *server_address);
         auto sent = client->send(tests::as_bytes("ping"));
         ASSERT_TRUE(sent) << sent.error();
-        EXPECT_EQ(*sent, 4U);
+        EXPECT_EQ(*sent, 4u);
 
         std::array<std::byte, 16> buffer{};
         auto datagram = server->receive_from(buffer);
         ASSERT_TRUE(datagram) << datagram.error();
-        EXPECT_EQ(datagram->size, 4U);
+        EXPECT_EQ(datagram->size, 4u);
         EXPECT_EQ(datagram->origin, client->local_endpoint().value());
         EXPECT_EQ(std::string(reinterpret_cast<const char*>(buffer.data()), datagram->size), "ping");
 
         auto empty = server->send_to({}, datagram->origin);
         ASSERT_TRUE(empty) << empty.error();
-        EXPECT_EQ(*empty, 0U);
+        EXPECT_EQ(*empty, 0u);
         auto received = client->receive(buffer);
         ASSERT_TRUE(received) << received.error();
-        EXPECT_EQ(*received, 0U);
+        EXPECT_EQ(*received, 0u);
     }
 
     TEST(socket_udp, oversized_datagram_is_rejected_as_message_size) {

@@ -32,7 +32,7 @@ namespace rei::net::tests {
 
         auto sent = pair->client.send(tests::as_bytes("hello"));
         ASSERT_TRUE(sent) << sent.error();
-        EXPECT_EQ(*sent, 5U);
+        EXPECT_EQ(*sent, 5u);
 
         auto received = tests::receive_exactly(pair->accepted, 5);
         ASSERT_TRUE(received) << received.error();
@@ -41,7 +41,7 @@ namespace rei::net::tests {
         // An empty read must return 0 without blocking and without looking like a closed peer.
         auto empty = pair->accepted.receive({});
         ASSERT_TRUE(empty) << empty.error();
-        EXPECT_EQ(*empty, 0U);
+        EXPECT_EQ(*empty, 0u);
     }
 
     TEST(socket_tcp, ipv6_loopback_pair_exchanges_data) {

@@ -73,6 +73,7 @@ cc_library(
     ],
 
     deps = [
+        ":ascii",
         ":error",
         ":idna",
         ":utf8",
