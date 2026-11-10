@@ -222,19 +222,12 @@ namespace rei::net::http {
         }
 
         auto send_request(http::connection& connection, const destination& where,
-                          http::client_request& request, const http::headers& defaults)
-            -> std::expected<void, rei::error> {
+                          http::client_request& request) -> std::expected<void, rei::error> {
             http::request_head head{.method = request.method, .target = where.target};
             auto has_host = false;
 
             for (const auto& [name, value] : request.headers) {
                 if (!is_framing_field(name)) {
-                    has_host = has_host || core::ascii_iequals(name, "host");
-                    head.headers.push_back({.name = name, .value = value});
-                }
-            }
-            for (const auto& [name, value] : defaults) {
-                if (!is_framing_field(name) && !request.headers.find(name)) {
                     has_host = has_host || core::ascii_iequals(name, "host");
                     head.headers.push_back({.name = name, .value = value});
                 }
@@ -342,10 +335,10 @@ namespace rei::net::http {
                 connection.timeout(options.io_timeout);
 
                 http::response_head head;
-                auto received = send_request(connection, where, request, options.headers)
-                                    .and_then([&] -> std::expected<void, rei::error> {
-                                        return receive_head(connection, head, request.method);
-                                    });
+                auto received =
+                    send_request(connection, where, request).and_then([&] -> std::expected<void, rei::error> {
+                        return receive_head(connection, head, request.method);
+                    });
                 if (!received) {
                     if (reused && retryable &&
                         received.error().code() == net::error_code::connection_closed) {
@@ -433,6 +426,14 @@ namespace rei::net::http {
 
     auto client::_open(http::client_request request, deadline_type deadline, bool deadline_covers_body)
         -> std::expected<http::response, rei::error> {
+        // Merged up front, so a redirect drops a default field the same way as one of the request's own.
+        const auto own = request.headers;
+        for (const auto& [name, value] : m_options.headers) {
+            if (!own.find(name)) {
+                request.headers.add(name, value);
+            }
+        }
+
         for (auto redirects = 0u;; redirects++) {
             auto where = locate(request.url);
             if (!where) {

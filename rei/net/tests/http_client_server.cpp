@@ -413,6 +413,26 @@ namespace rei::net::tests {
                                      http::error_code::too_many_redirects));
     }
 
+    TEST(http_client_server, redirects_to_another_origin_drop_credentials) {
+        const test_server target{[](http::request& request) -> http::response {
+            return {.body = std::format("{} {}", request.header("authorization").value_or("none"),
+                                        request.header("user-agent").value_or("none"))};
+        }};
+        const test_server origin{[&](http::request&) -> http::response {
+            return {.status = http::status::found,
+                    .headers = {{.name = "Location", .value = target.url("/")}}};
+        }};
+
+        http::client client{{
+            .max_redirects = 1,
+            .headers = {{.name = "Authorization", .value = "secret"}, {.name = "User-Agent", .value = "rei"}},
+        }};
+
+        const auto response = client.send({.url = origin.url("/")});
+        ASSERT_TRUE(response) << response.error();
+        EXPECT_EQ(response->body.text(), "none rei");
+    }
+
     TEST(http_client_server, client_reports_timeouts_and_unsupported_urls) {
         const test_server server{[](http::request&) -> http::response {
             std::this_thread::sleep_for(300ms);
