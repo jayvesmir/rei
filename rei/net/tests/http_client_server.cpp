@@ -494,13 +494,19 @@ namespace rei::net::tests {
 
     TEST(http_client_server, redirects_to_another_origin_drop_credentials_and_host) {
         const test_server target{[](http::request& request) -> http::response {
-            return {.body = std::format("{} {} {}", request.header("authorization").value_or("none"),
-                                        request.header("user-agent").value_or("none"),
-                                        request.header("host").value_or("none"))};
+            const auto field = [&](std::string_view name) -> std::string_view {
+                return request.header(name).value_or("none");
+            };
+
+            const auto seen =
+                std::format("{} {} {}", field("authorization"), field("user-agent"), field("host"));
+            return {.body = seen};
         }};
         const test_server origin{[&](http::request&) -> http::response {
-            return {.status = http::status::found,
-                    .headers = {{.name = "Location", .value = target.url("/")}}};
+            return {
+                .status = http::status::found,
+                .headers = {{.name = "Location", .value = target.url("/")}},
+            };
         }};
 
         http::client client{{
