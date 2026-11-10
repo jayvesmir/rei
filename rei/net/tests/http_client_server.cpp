@@ -66,6 +66,20 @@ namespace rei::net::tests {
                 .transform([&] -> net::socket { return std::move(*socket); });
         }
 
+        auto listen_locally() -> std::expected<net::socket, rei::error> {
+            auto listener = net::socket::make(net::communication_domain::ipv4, net::transport_protocol::tcp);
+            if (!listener) {
+                return listener;
+            }
+
+            return listener->set_timeout(5s)
+                .and_then([&] -> std::expected<void, rei::error> {
+                    return listener->bind(tests::loopback(net::communication_domain::ipv4));
+                })
+                .and_then([&] -> std::expected<void, rei::error> { return listener->listen(); })
+                .transform([&] -> net::socket { return std::move(*listener); });
+        }
+
         auto send_text(net::socket& socket, std::string_view text) -> std::expected<void, rei::error> {
             while (!text.empty()) {
                 const auto sent = socket.send(tests::as_bytes(text));
@@ -379,13 +393,9 @@ namespace rei::net::tests {
     }
 
     TEST(http_client_server, client_drops_unread_input_and_retries_a_connection_closed_mid_request) {
-        auto listener = net::socket::make(net::communication_domain::ipv4, net::transport_protocol::tcp);
+        auto listener = listen_locally();
         ASSERT_TRUE(listener) << listener.error();
-        ASSERT_TRUE(listener->set_timeout(5s));
-        ASSERT_TRUE(listener->bind(tests::loopback(net::communication_domain::ipv4)));
-        ASSERT_TRUE(listener->listen());
-        const auto local = listener->local_endpoint();
-        ASSERT_TRUE(local) << local.error();
+        const auto port = listener->local_endpoint().value().port;
 
         // Every connection answers one request. The first adds a response nobody asked for, and the
         // second closes once the next request has arrived.
@@ -405,10 +415,38 @@ namespace rei::net::tests {
 
         http::client client;
         for (auto i = 0; i < 3; i++) {
-            const auto response = client.send({.url = std::format("http://127.0.0.1:{}/", local->port)});
+            const auto response = client.send({.url = std::format("http://127.0.0.1:{}/", port)});
             ASSERT_TRUE(response) << response.error();
             EXPECT_EQ(response->body.text(), "ok");
         }
+    }
+
+    TEST(http_client_server, client_closes_idle_connections_to_origins_it_stopped_using) {
+        auto listener = listen_locally();
+        ASSERT_TRUE(listener) << listener.error();
+        const auto port = listener->local_endpoint().value().port;
+
+        // Answers one request, then waits for the client to close the connection.
+        auto closed = false;
+        std::jthread unused{[&] -> void {
+            auto socket = listener->accept();
+            if (!socket || !socket->set_timeout(5s) || !receive_text(*socket, "\r\n\r\n")) {
+                return;
+            }
+
+            (void)send_text(*socket, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+            closed = receive_text(*socket).has_value();
+        }};
+
+        const test_server server{[](http::request&) -> http::response { return {}; }};
+        http::client client{{.idle_timeout = 100ms}};
+
+        ASSERT_TRUE(client.send({.url = std::format("http://127.0.0.1:{}/", port)}));
+        std::this_thread::sleep_for(300ms);
+        ASSERT_TRUE(client.send({.url = server.url("/")}));
+
+        unused.join();
+        EXPECT_TRUE(closed);
     }
 
     TEST(http_client_server, redirects_are_followed_only_when_enabled) {

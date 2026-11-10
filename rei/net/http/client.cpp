@@ -167,17 +167,22 @@ namespace rei::net::http {
             -> std::optional<http::connection> {
             const std::scoped_lock lock{pool.mutex};
 
+            // Every origin is swept, or connections to one that is never asked for again would stay open.
+            const auto oldest_allowed = std::chrono::steady_clock::now() - idle_timeout;
+            std::erase_if(pool.idle, [&](auto& entry) -> bool {
+                std::erase_if(entry.second, [&](const detail::pool::idle_connection& idle) -> bool {
+                    return idle.since < oldest_allowed;
+                });
+
+                return entry.second.empty();
+            });
+
             const auto found = pool.idle.find(origin);
             if (found == pool.idle.end()) {
                 return std::nullopt;
             }
 
             auto& idle = found->second;
-            const auto oldest_allowed = std::chrono::steady_clock::now() - idle_timeout;
-            std::erase_if(idle, [&](const detail::pool::idle_connection& entry) -> bool {
-                return entry.since < oldest_allowed;
-            });
-
             while (!idle.empty()) {
                 auto connection = std::move(idle.back().connection);
                 idle.pop_back();
