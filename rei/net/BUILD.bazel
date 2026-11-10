@@ -79,6 +79,35 @@ cc_library(
 )
 
 cc_library(
+    name = "http",
+    include_prefix = "net",
+
+    srcs = [
+        "http/detail.hpp",
+
+        "http/body.cpp",
+        "http/framing.cpp",
+        "http/header.cpp",
+        "http/parse.cpp",
+        "http/write.cpp",
+    ],
+
+    hdrs = [
+        "http.hpp",
+        "http/error_code.hpp",
+        "http/h1.hpp",
+    ],
+
+    deps = [
+        "//rei/core:ascii",
+        "//rei/core:error",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"]
+)
+
+cc_library(
     name = "net",
     include_prefix = "net",
 
@@ -86,6 +115,7 @@ cc_library(
     hdrs = [],
 
     deps = [
+        ":http",
         ":socket",
     ],
 
