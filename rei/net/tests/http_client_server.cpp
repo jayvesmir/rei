@@ -185,6 +185,7 @@ namespace rei::net::tests {
         ASSERT_TRUE(router.route("POST /items", [](http::request&) -> http::response {
             return {.status = http::status::created};
         }));
+        ASSERT_TRUE(router.route("/", [](http::request&) -> http::response { return {.body = "root"}; }));
 
         const test_server server{router};
         http::client client;
@@ -192,6 +193,12 @@ namespace rei::net::tests {
         const auto missing = client.send({.url = server.url("/nothing")});
         ASSERT_TRUE(missing) << missing.error();
         EXPECT_EQ(missing->status, http::status::not_found);
+
+        // The `*` target is not a path, so not even "/" matches it.
+        const auto asterisk =
+            exchange_raw(server.port(), "OPTIONS * HTTP/1.1\r\nHost: a\r\nConnection: close\r\n\r\n");
+        ASSERT_TRUE(asterisk) << asterisk.error();
+        EXPECT_TRUE(asterisk->starts_with("HTTP/1.1 404 Not Found\r\n"));
 
         const auto wrong = client.send({.method = "DELETE", .url = server.url("/items")});
         ASSERT_TRUE(wrong) << wrong.error();

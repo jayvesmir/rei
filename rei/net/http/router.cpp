@@ -153,6 +153,11 @@ namespace rei::net::http {
         auto match(const detail::route& route, std::string_view path, params& captured) -> bool {
             captured.clear();
 
+            // The `*` of an OPTIONS request is not a path.
+            if (!path.starts_with('/')) {
+                return false;
+            }
+
             segments remaining{path};
             for (const auto& segment : route.segments) {
                 if (remaining.done()) {
