@@ -6,6 +6,9 @@
 #include <expected>
 #include <filesystem>
 #include <fstream>
+#include <list>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <source_location>
 #include <string>
@@ -31,6 +34,29 @@ namespace rei::net::tls {
         struct transport {
             net::socket socket;
             std::optional<rei::error> error;
+        };
+
+        class session_cache {
+          private:
+            struct entry {
+                std::string server_name;
+                bssl::UniquePtr<SSL_SESSION> session;
+            };
+
+            std::mutex m_mutex;
+            std::list<session_cache::entry> m_entries;
+            std::size_t m_capacity;
+
+          public:
+            explicit session_cache(std::size_t capacity) noexcept;
+
+            auto take(std::string_view server_name) -> bssl::UniquePtr<SSL_SESSION>;
+            auto keep(std::string server_name, bssl::UniquePtr<SSL_SESSION> session) -> void;
+        };
+
+        struct resumption {
+            std::shared_ptr<detail::session_cache> sessions;
+            std::string server_name;
         };
 
         inline auto failure(std::error_code code, std::string detail,
@@ -102,10 +128,11 @@ namespace rei::net::tls {
 
     struct stream::state {
         detail::transport transport;
+        detail::resumption resumption;
         bssl::UniquePtr<SSL> ssl;
 
-        static auto handshake(net::socket socket, bssl::UniquePtr<SSL> ssl)
-            -> std::expected<tls::stream, rei::error>;
+        static auto handshake(net::socket socket, bssl::UniquePtr<SSL> ssl,
+                              detail::resumption resumption = {}) -> std::expected<tls::stream, rei::error>;
 
         auto failure(int result, std::source_location location = std::source_location::current())
             -> rei::error;

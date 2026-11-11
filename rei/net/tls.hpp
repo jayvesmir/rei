@@ -65,6 +65,7 @@ namespace rei::net::tls {
         tls::roots roots;
         tls::version minimum_version{tls::version::tls_1_2};
         std::vector<std::string> application_protocols;
+        std::size_t max_cached_sessions{256};
     };
 
     struct acceptor_options {
@@ -102,6 +103,7 @@ namespace rei::net::tls {
         [[nodiscard]] auto socket() noexcept -> net::socket&;
         [[nodiscard]] auto version() const noexcept -> tls::version;
         [[nodiscard]] auto application_protocol() const noexcept -> std::string_view;
+        [[nodiscard]] auto resumed() const noexcept -> bool;
     };
 
     static_assert(net::stream<tls::stream>);

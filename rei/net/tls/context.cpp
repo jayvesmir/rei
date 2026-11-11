@@ -1,7 +1,9 @@
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -16,6 +18,7 @@
 namespace rei::net::tls {
     struct connector::state {
         bssl::UniquePtr<SSL_CTX> context;
+        std::shared_ptr<detail::session_cache> sessions;
     };
 
     struct acceptor::state {
@@ -26,6 +29,7 @@ namespace rei::net::tls {
     namespace {
         constexpr auto read_buffer_size = 0xffffuz;
         constexpr auto longest_protocol_name = 255uz;
+        constexpr auto sessions_per_server = std::ptrdiff_t{8};
 
         auto make_context(tls::version minimum_version)
             -> std::expected<bssl::UniquePtr<SSL_CTX>, rei::error> {
@@ -87,7 +91,48 @@ namespace rei::net::tls {
 
             return result == OPENSSL_NPN_NEGOTIATED ? SSL_TLSEXT_ERR_OK : SSL_TLSEXT_ERR_ALERT_FATAL;
         }
+
+        auto keep_session(SSL* ssl, SSL_SESSION* session) -> int {
+            auto& resumption = *static_cast<detail::resumption*>(SSL_get_app_data(ssl));
+
+            resumption.sessions->keep(resumption.server_name, bssl::UniquePtr<SSL_SESSION>{session});
+            return 1;
+        }
     } // namespace
+
+    detail::session_cache::session_cache(std::size_t capacity) noexcept : m_capacity(capacity) {}
+
+    auto detail::session_cache::take(std::string_view server_name) -> bssl::UniquePtr<SSL_SESSION> {
+        std::scoped_lock lock{m_mutex};
+
+        auto found = std::ranges::find(m_entries, server_name, &entry::server_name);
+        if (found == m_entries.end()) {
+            return nullptr;
+        }
+
+        if (SSL_SESSION_should_be_single_use(found->session.get()) != 0) {
+            auto session = std::move(found->session);
+            m_entries.erase(found);
+            return session;
+        }
+
+        m_entries.splice(m_entries.begin(), m_entries, found);
+        return bssl::UpRef(found->session);
+    }
+
+    auto detail::session_cache::keep(std::string server_name, bssl::UniquePtr<SSL_SESSION> session) -> void {
+        std::scoped_lock lock{m_mutex};
+
+        auto same_server = [&](const entry& cached) -> bool { return cached.server_name == server_name; };
+        if (std::ranges::count_if(m_entries, same_server) >= sessions_per_server) {
+            m_entries.erase(std::ranges::find_last_if(m_entries, same_server).begin());
+        }
+
+        m_entries.push_front({.server_name = std::move(server_name), .session = std::move(session)});
+        if (m_entries.size() > m_capacity) {
+            m_entries.pop_back();
+        }
+    }
 
     connector::connector(std::shared_ptr<connector::state> state) noexcept : m_state(std::move(state)) {}
 
@@ -127,7 +172,14 @@ namespace rei::net::tls {
                                    detail::drain_errors());
         }
 
-        return connector{std::make_shared<connector::state>(std::move(*context))};
+        std::shared_ptr<detail::session_cache> sessions;
+        if (options.max_cached_sessions > 0) {
+            sessions = std::make_shared<detail::session_cache>(options.max_cached_sessions);
+            SSL_CTX_set_session_cache_mode(context->get(), SSL_SESS_CACHE_CLIENT);
+            SSL_CTX_sess_set_new_cb(context->get(), keep_session);
+        }
+
+        return connector{std::make_shared<connector::state>(std::move(*context), std::move(sessions))};
     }
 
     auto connector::connect(net::socket socket, std::string_view server_name) const
@@ -153,7 +205,14 @@ namespace rei::net::tls {
                                    "invalid server name: " + detail::drain_errors());
         }
 
-        return tls::stream::state::handshake(std::move(socket), std::move(*ssl));
+        if (m_state->sessions) {
+            if (auto session = m_state->sessions->take(name)) {
+                SSL_set_session(ssl->get(), session.get());
+            }
+        }
+
+        return tls::stream::state::handshake(std::move(socket), std::move(*ssl),
+                                             {.sessions = m_state->sessions, .server_name = std::move(name)});
     }
 
     acceptor::acceptor(std::shared_ptr<acceptor::state> state) noexcept : m_state(std::move(state)) {}

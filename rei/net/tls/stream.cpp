@@ -80,10 +80,11 @@ namespace rei::net::tls {
         }
     } // namespace
 
-    auto stream::state::handshake(net::socket socket, bssl::UniquePtr<SSL> ssl)
+    auto stream::state::handshake(net::socket socket, bssl::UniquePtr<SSL> ssl, detail::resumption resumption)
         -> std::expected<tls::stream, rei::error> {
         auto state = std::make_unique<stream::state>(
-            detail::transport{.socket = std::move(socket), .error = std::nullopt}, std::move(ssl));
+            detail::transport{.socket = std::move(socket), .error = std::nullopt}, std::move(resumption),
+            std::move(ssl));
 
         ERR_clear_error();
         auto bio = make_bio(state->transport);
@@ -95,6 +96,7 @@ namespace rei::net::tls {
         SSL_set_bio(state->ssl.get(), bio.get(), bio.get());
         (void)bio.release();
 
+        SSL_set_app_data(state->ssl.get(), &state->resumption);
         SSL_set_shed_handshake_config(state->ssl.get(), 1);
 
         if (auto result = SSL_do_handshake(state->ssl.get()); result != 1) {
@@ -217,5 +219,9 @@ namespace rei::net::tls {
         SSL_get0_alpn_selected(m_state->ssl.get(), &protocol, &size);
 
         return {reinterpret_cast<const char*>(protocol), size};
+    }
+
+    auto stream::resumed() const noexcept -> bool {
+        return SSL_session_reused(m_state->ssl.get()) != 0;
     }
 } // namespace rei::net::tls
