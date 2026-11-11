@@ -236,6 +236,27 @@ namespace rei::net::tests {
         EXPECT_TRUE(created->headers.find("Date"));
     }
 
+    TEST(http_client_server, router_prefers_a_route_for_the_method_over_one_for_any_method) {
+        http::router router;
+        ASSERT_TRUE(router.route("GET /items", [](http::request&) -> http::response {
+            return {.headers = {{.name = "X-Route", .value = "GET"}}};
+        }));
+        ASSERT_TRUE(router.route("/items", [](http::request&) -> http::response {
+            return {.headers = {{.name = "X-Route", .value = "any"}}};
+        }));
+
+        const test_server server{router};
+        http::client client;
+        const auto route_for = [&](std::string method) -> std::string {
+            auto response = client.send({.method = std::move(method), .url = server.url("/items")});
+            return response ? std::string{response->headers.find("X-Route").value_or("none")} : "failed";
+        };
+
+        EXPECT_EQ(route_for("GET"), "GET");
+        EXPECT_EQ(route_for("HEAD"), "GET");
+        EXPECT_EQ(route_for("POST"), "any");
+    }
+
     TEST(http_client_server, connections_are_reused_and_bodies_stream) {
         http::router router;
         ASSERT_TRUE(router.route("GET /port", [](http::request& request) -> http::response {
