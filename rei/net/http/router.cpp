@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <compare>
 #include <expected>
+#include <functional>
 #include <optional>
 #include <source_location>
 #include <string>
@@ -16,6 +17,7 @@
 namespace rei::net::http {
     namespace {
         using params = std::vector<std::pair<std::string_view, std::string_view>>;
+        using optional_route = std::optional<std::reference_wrapper<const detail::route>>;
 
         auto invalid(std::string detail, std::source_location location = std::source_location::current())
             -> std::unexpected<rei::error> {
@@ -256,26 +258,26 @@ namespace rei::net::http {
                 continue;
             }
 
-            const detail::route* exact = nullptr;
-            const detail::route* get = nullptr;
-            const detail::route* any = nullptr;
+            optional_route exact;
+            optional_route get;
+            optional_route any;
             for (auto i = group; i < group_end; i++) {
                 const auto& route = m_routes[i];
 
                 if (route.method == method) {
-                    exact = &route;
+                    exact = route;
                 } else if (route.method == "GET") {
-                    get = &route;
+                    get = route;
                 } else if (route.method.empty()) {
-                    any = &route;
+                    any = route;
                 }
             }
 
-            const auto* chosen = exact;
-            if (chosen == nullptr) {
-                chosen = method == "HEAD" && get != nullptr ? get : any;
+            auto chosen = exact;
+            if (!chosen) {
+                chosen = method == "HEAD" && get ? get : any;
             }
-            if (chosen == nullptr) {
+            if (!chosen) {
                 for (auto i = group; i < group_end; i++) {
                     allowed.emplace_back(m_routes[i].method);
                 }
@@ -284,7 +286,7 @@ namespace rei::net::http {
                 continue;
             }
 
-            match(*chosen, request.m_path, request.m_params);
+            match(chosen->get(), request.m_path, request.m_params);
 
             request.m_decoded.clear();
             request.m_decoded.reserve(request.m_path.size());
@@ -294,7 +296,7 @@ namespace rei::net::http {
                 }
             }
 
-            return chosen->handler(request);
+            return chosen->get().handler(request);
         }
 
         if (allowed.empty()) {
