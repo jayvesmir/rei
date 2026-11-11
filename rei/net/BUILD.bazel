@@ -60,7 +60,10 @@ cc_library(
     include_prefix = "net",
 
     srcs = [],
-    hdrs = ["socket.hpp"],
+    hdrs = [
+        "socket.hpp",
+        "stream.hpp",
+    ],
 
     deps = [
         "//rei/core",

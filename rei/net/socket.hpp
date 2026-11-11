@@ -9,6 +9,7 @@
 
 #include "rei/net/backend/socket.hpp"
 #include "rei/net/endpoint.hpp"
+#include "rei/net/stream.hpp"
 #include "rei/net/transport.hpp"
 
 namespace rei::net {
@@ -142,6 +143,8 @@ namespace rei::net {
             m_backend.set_deadline(deadline);
         }
     };
+
+    static_assert(net::stream<net::socket>);
 
     inline auto resolve(const net::ip_endpoint& endpoint, net::communication_domain domain,
                         net::transport_protocol protocol) -> std::expected<net::ip_endpoint, rei::error> {
