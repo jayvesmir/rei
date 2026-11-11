@@ -10,6 +10,7 @@
 
 #include "rei/core/error.hpp"
 #include "rei/net/http.hpp"
+#include "rei/net/tls.hpp"
 
 namespace rei::net::http {
     namespace detail {
@@ -33,6 +34,8 @@ namespace rei::net::http {
 
         // Added to every request that doesn't set the same name.
         http::headers headers;
+
+        std::optional<tls::connector> tls;
     };
 
     struct client_request {
