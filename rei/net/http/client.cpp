@@ -34,7 +34,7 @@
 namespace rei::net::http::detail {
     struct pool {
         struct idle_connection {
-            http::connection connection;
+            http::connection<net::socket> connection;
             std::chrono::steady_clock::time_point since;
         };
 
@@ -162,7 +162,7 @@ namespace rei::net::http {
 
         auto take_idle(detail::pool& pool, std::string_view origin,
                        std::optional<std::chrono::milliseconds> idle_timeout)
-            -> std::optional<http::connection> {
+            -> std::optional<http::connection<net::socket>> {
             const std::scoped_lock lock{pool.mutex};
 
             // Every origin is swept, or connections to one that is never asked for again would stay open.
@@ -199,7 +199,7 @@ namespace rei::net::http {
             std::shared_ptr<detail::pool> pool;
             std::string origin;
             std::size_t max_idle{};
-            std::optional<http::connection> connection;
+            std::optional<http::connection<net::socket>> connection;
 
             auto release() -> void {
                 if (connection && connection->reusable() && max_idle > 0) {
@@ -228,7 +228,7 @@ namespace rei::net::http {
                    core::ascii_iequals(name, "transfer-encoding");
         }
 
-        auto send_request(http::connection& connection, const destination& where,
+        auto send_request(http::connection<net::socket>& connection, const destination& where,
                           http::client_request& request) -> std::expected<void, rei::error> {
             http::request_head head{.method = request.method, .target = where.target};
             auto has_host = false;
@@ -285,8 +285,8 @@ namespace rei::net::http {
             }
         }
 
-        auto receive_head(http::connection& connection, http::response_head& head, std::string_view method)
-            -> std::expected<void, rei::error> {
+        auto receive_head(http::connection<net::socket>& connection, http::response_head& head,
+                          std::string_view method) -> std::expected<void, rei::error> {
             while (true) {
                 if (auto received = connection.read_head(head, method); !received) {
                     return received;
@@ -339,7 +339,9 @@ namespace rei::net::http {
 
                 auto& connection = *held->connection;
                 connection.deadline(deadline);
-                connection.timeout(options.io_timeout);
+                if (auto limited = connection.timeout(options.io_timeout); !limited) {
+                    return std::unexpected(limited.error());
+                }
 
                 http::response_head head;
                 auto received =

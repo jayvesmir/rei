@@ -33,7 +33,7 @@
 
 namespace rei::net::http {
     struct server::session {
-        http::connection connection;
+        http::connection<net::socket> connection;
         bool idle{};
     };
 
@@ -158,7 +158,7 @@ namespace rei::net::http {
             };
         }
 
-        auto write_response(http::connection& connection, const http::request_head& request,
+        auto write_response(http::connection<net::socket>& connection, const http::request_head& request,
                             http::response& response, bool closing, http::response_head& head,
                             std::vector<std::byte>& buffer) -> std::expected<void, rei::error> {
             const auto is_head = request.method == http::to_string(http::method::head);
@@ -241,6 +241,7 @@ namespace rei::net::http {
 
         // Gives the peer a moment to read the response before unread input makes the close a reset.
         auto linger(net::socket& socket) -> void {
+            socket.set_deadline(std::nullopt);
             if (!socket.shutdown(net::shutdown_mode::send) || !socket.set_timeout(linger_wait)) {
                 return;
             }
@@ -520,7 +521,7 @@ namespace rei::net::http {
         std::unique_lock lock{m_mutex};
         for (auto* const session : m_sessions) {
             if (session->idle) {
-                (void)session->connection.socket().shutdown(net::shutdown_mode::both);
+                (void)session->connection.stream().shutdown(net::shutdown_mode::both);
             }
         }
 
@@ -534,7 +535,7 @@ namespace rei::net::http {
         http::request request;
         request.m_connection = &connection;
         request.m_max_body_size = m_options.max_body_size;
-        request.m_peer = connection.socket().peer_endpoint().value_or(net::ip_endpoint{});
+        request.m_peer = connection.stream().peer_endpoint().value_or(net::ip_endpoint{});
 
         http::response_head head;
         std::vector<std::byte> buffer(copy_size);
@@ -555,7 +556,7 @@ namespace rei::net::http {
             }
 
             connection.deadline(m_options.head_timeout.transform(http::deadline_after));
-            connection.timeout(std::nullopt);
+            (void)connection.timeout(std::nullopt);
             const auto received = connection.read_head(request.m_head);
 
             {
@@ -574,7 +575,10 @@ namespace rei::net::http {
             }
 
             connection.deadline(std::nullopt);
-            connection.timeout(m_options.io_timeout);
+            if (auto limited = connection.timeout(m_options.io_timeout); !limited) {
+                _report(limited.error());
+                break;
+            }
 
             if (const auto rejected = request._start()) {
                 reject(*rejected, request.m_head);
@@ -630,6 +634,6 @@ namespace rei::net::http {
             }
         }
 
-        linger(connection.socket());
+        linger(connection.stream());
     }
 } // namespace rei::net::http

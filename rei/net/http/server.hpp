@@ -38,7 +38,7 @@ namespace rei::net::http {
         std::string m_decoded;
         net::ip_endpoint m_peer;
 
-        http::connection* m_connection{};
+        http::connection<net::socket>* m_connection{};
         std::optional<std::uint64_t> m_max_body_size;
         std::optional<std::uint64_t> m_body_size;
         std::uint64_t m_body_received{};
