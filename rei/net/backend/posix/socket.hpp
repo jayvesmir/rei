@@ -23,11 +23,13 @@ namespace rei::net::backend {
         net::communication_domain m_domain{net::communication_domain::ipv4};
         net::transport_protocol m_protocol{net::transport_protocol::tcp};
         std::optional<std::chrono::milliseconds> m_timeout;
+        std::optional<std::chrono::steady_clock::time_point> m_deadline;
         bool m_non_blocking{false};
 
         socket_backend(net::communication_domain domain, net::transport_protocol protocol) noexcept;
         auto _configure() -> std::expected<void, rei::error>;
-        [[nodiscard]] auto _deadline() const -> std::optional<std::chrono::steady_clock::time_point>;
+        [[nodiscard]] auto _wait_end() const
+            -> std::expected<std::optional<std::chrono::steady_clock::time_point>, rei::error>;
 
       public:
         socket_backend() = default;
@@ -47,6 +49,9 @@ namespace rei::net::backend {
         [[nodiscard]] auto protocol() const noexcept -> net::transport_protocol { return m_protocol; }
         [[nodiscard]] auto timeout() const noexcept -> std::optional<std::chrono::milliseconds> {
             return m_timeout;
+        }
+        [[nodiscard]] auto deadline() const noexcept -> std::optional<std::chrono::steady_clock::time_point> {
+            return m_deadline;
         }
         [[nodiscard]] auto readable() const noexcept -> bool;
 
@@ -72,5 +77,8 @@ namespace rei::net::backend {
         auto set_reuse_address(bool enabled) -> std::expected<void, rei::error>;
         auto set_no_delay(bool enabled) -> std::expected<void, rei::error>;
         auto set_timeout(std::optional<std::chrono::milliseconds> timeout) -> std::expected<void, rei::error>;
+        auto set_deadline(std::optional<std::chrono::steady_clock::time_point> deadline) noexcept -> void {
+            m_deadline = deadline;
+        }
     };
 } // namespace rei::net::backend

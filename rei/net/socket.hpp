@@ -56,6 +56,10 @@ namespace rei::net {
             return m_backend.timeout();
         }
 
+        [[nodiscard]] auto deadline() const noexcept -> std::optional<std::chrono::steady_clock::time_point> {
+            return m_backend.deadline();
+        }
+
         // Whether a receive would return at once: with data, with the end of the stream or with an error.
         [[nodiscard]] auto readable() const noexcept -> bool { return m_backend.readable(); }
 
@@ -129,6 +133,12 @@ namespace rei::net {
         auto set_timeout(std::optional<std::chrono::milliseconds> timeout)
             -> std::expected<void, rei::error> {
             return m_backend.set_timeout(timeout);
+        }
+
+        // No wait of a blocking socket lasts past `deadline`, however often the timeout starts over. Once
+        // it has passed, those calls fail with net::error_code::timed_out. std::nullopt removes it.
+        auto set_deadline(std::optional<std::chrono::steady_clock::time_point> deadline) noexcept -> void {
+            m_backend.set_deadline(deadline);
         }
     };
 
