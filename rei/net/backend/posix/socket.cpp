@@ -360,6 +360,11 @@ namespace rei::net::backend {
         // TODO: OpenBSD something
 #endif
 
+        // Not worth failing for: macOS refuses it on a connection the peer has already reset.
+        if (m_protocol == net::transport_protocol::tcp) {
+            (void)set_no_delay(true);
+        }
+
         return this->set_non_blocking(false);
     }
 

@@ -123,7 +123,8 @@ namespace rei::net {
             return m_backend.set_reuse_address(enabled);
         }
 
-        // Sends small writes at once instead of holding them back for the peer's ACK (TCP_NODELAY).
+        // Sends small writes at once instead of holding them back for the peer's ACK (TCP_NODELAY). TCP
+        // sockets start with it on.
         auto set_no_delay(bool enabled) -> std::expected<void, rei::error> {
             return m_backend.set_no_delay(enabled);
         }
