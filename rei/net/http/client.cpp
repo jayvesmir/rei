@@ -70,9 +70,10 @@ namespace rei::net::http {
             if (!url) {
                 return std::unexpected(url.error());
             }
-            if (url->scheme() != "http") {
+            const auto secure = url->scheme() == "https";
+            if (!secure && url->scheme() != "http") {
                 return failure(core::make_error_code(core::error_code::not_supported),
-                               "only http URLs are supported");
+                               "only http and https URLs are supported");
             }
             if (!url->username().empty() || !url->password().empty()) {
                 return failure(core::make_error_code(core::error_code::invalid_argument),
@@ -85,7 +86,8 @@ namespace rei::net::http {
                                "the URL has no host");
             }
 
-            const auto port = url->port().value_or(80);
+            const auto port = url->port().value_or(secure ? 443 : 80);
+            auto origin = std::string{url->scheme()} + "://" + std::string{host} + ':' + std::to_string(port);
             auto host_field = std::string{host};
             if (url->port()) {
                 host_field += ':' + std::to_string(port);
@@ -102,7 +104,7 @@ namespace rei::net::http {
 
             return destination{
                 .url = std::move(*url),
-                .origin = std::string{host} + ':' + std::to_string(port),
+                .origin = std::move(origin),
                 .host = std::move(host_field),
                 .target = std::move(target),
                 .address = std::move(address),
