@@ -26,6 +26,7 @@ For a complete list of packages please look inside the [rei](rei/) directory.
 
 ## Dependencies
 - [magic_enum](https://github.com/Neargye/magic_enum)
+- [aws-lc](https://github.com/aws/aws-lc)
 
 ## Documentation
 

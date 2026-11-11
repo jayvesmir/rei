@@ -5,6 +5,10 @@
 #include <system_error>
 #include <thread>
 
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
+
 #include "gtest/gtest.h"
 
 #include "rei/net/error_code.hpp"
@@ -14,11 +18,23 @@
 namespace rei::net::tests {
     using namespace std::chrono_literals;
 
+    namespace {
+        auto no_delay(const net::socket& socket) -> bool {
+            int value{};
+            socklen_t size = sizeof(value);
+
+            return ::getsockopt(socket.native_handle(), IPPROTO_TCP, TCP_NODELAY, &value, &size) == 0 &&
+                   value != 0;
+        }
+    } // namespace
+
     TEST(socket_tcp, accepted_pair_has_matching_endpoints_and_exchanges_data) {
         auto pair = tests::make_tcp_pair();
         ASSERT_TRUE(pair) << pair.error();
         EXPECT_EQ(pair->accepted.domain(), net::communication_domain::ipv4);
         EXPECT_EQ(pair->accepted.protocol(), net::transport_protocol::tcp);
+        EXPECT_TRUE(no_delay(pair->client));
+        EXPECT_TRUE(no_delay(pair->accepted));
 
         auto client_local = pair->client.local_endpoint();
         auto client_peer = pair->client.peer_endpoint();

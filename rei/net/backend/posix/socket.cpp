@@ -77,6 +77,8 @@ namespace rei::net::backend::detail {
             return detail::errno_code();
         }
 
+        constexpr std::chrono::milliseconds longest_poll{std::numeric_limits<int>::max()};
+
         auto should_retry(bool waiting) -> bool {
             return errno == EINTR || (waiting && (errno == EAGAIN || errno == EWOULDBLOCK));
         }
@@ -92,16 +94,18 @@ namespace rei::net::backend::detail {
             while (true) {
                 const auto remaining = std::chrono::ceil<std::chrono::milliseconds>(
                     *deadline - std::chrono::steady_clock::now());
-                const auto result =
-                    ::poll(&target, 1, static_cast<int>(std::max<std::int64_t>(remaining.count(), 0)));
+                const auto wait =
+                    std::clamp(remaining, std::chrono::milliseconds::zero(), detail::longest_poll);
+
+                const auto result = ::poll(&target, 1, static_cast<int>(wait.count()));
                 if (result > 0) {
                     return {};
                 }
-                if (result == 0) {
+                if (result == 0 && remaining <= detail::longest_poll) {
                     return std::unexpected(rei::error{net::make_error_code(net::error_code::timed_out),
                                                       "socket operation timed out"});
                 }
-                if (errno != EINTR) {
+                if (result == -1 && errno != EINTR) {
                     return std::unexpected(rei::error{detail::errno_code(), "failed to wait for socket"});
                 }
             }
@@ -320,7 +324,7 @@ namespace rei::net::backend {
 
     socket_backend::socket_backend(socket_backend&& other) noexcept
         : m_socket(std::exchange(other.m_socket, -1)), m_domain(other.m_domain), m_protocol(other.m_protocol),
-          m_timeout(other.m_timeout), m_non_blocking(other.m_non_blocking) {}
+          m_timeout(other.m_timeout), m_deadline(other.m_deadline), m_non_blocking(other.m_non_blocking) {}
 
     auto socket_backend::operator=(socket_backend&& other) noexcept -> socket_backend& {
         if (this != &other) {
@@ -332,6 +336,7 @@ namespace rei::net::backend {
             m_domain = other.m_domain;
             m_protocol = other.m_protocol;
             m_timeout = other.m_timeout;
+            m_deadline = other.m_deadline;
             m_non_blocking = other.m_non_blocking;
         }
 
@@ -354,15 +359,32 @@ namespace rei::net::backend {
         // TODO: OpenBSD something
 #endif
 
+        if (m_protocol == net::transport_protocol::tcp) {
+            (void)set_no_delay(true);
+        }
+
         return this->set_non_blocking(false);
     }
 
-    auto socket_backend::_deadline() const -> std::optional<std::chrono::steady_clock::time_point> {
-        if (!m_timeout || m_non_blocking) {
+    auto socket_backend::_wait_end() const
+        -> std::expected<std::optional<std::chrono::steady_clock::time_point>, rei::error> {
+        if (m_non_blocking) {
             return std::nullopt;
         }
 
-        return std::chrono::steady_clock::now() + *m_timeout;
+        const auto now = std::chrono::steady_clock::now();
+        if (m_deadline && *m_deadline <= now) {
+            return std::unexpected(
+                rei::error{net::make_error_code(net::error_code::timed_out), "socket deadline passed"});
+        }
+        if (!m_timeout) {
+            return m_deadline;
+        }
+
+        const auto latest = m_deadline.value_or(std::chrono::steady_clock::time_point::max());
+        const auto ends_first = *m_timeout < std::chrono::floor<std::chrono::milliseconds>(latest - now);
+
+        return ends_first ? now + *m_timeout : latest;
     }
 
     auto socket_backend::make(net::communication_domain domain, net::transport_protocol protocol)
@@ -427,8 +449,12 @@ namespace rei::net::backend {
             return std::unexpected(address.error());
         }
 
-        const auto deadline = _deadline();
-        if (!deadline) {
+        const auto wait_end = _wait_end();
+        if (!wait_end) {
+            return std::unexpected(wait_end.error());
+        }
+
+        if (!*wait_end) {
             if (::connect(m_socket, reinterpret_cast<const sockaddr*>(&address->storage), address->size) ==
                 -1) {
                 return std::unexpected(rei::error{detail::errno_code(), "failed to connect socket"});
@@ -442,7 +468,7 @@ namespace rei::net::backend {
             return non_blocking;
         }
 
-        auto connected = detail::connect_until(m_socket, *address, *deadline);
+        auto connected = detail::connect_until(m_socket, *address, **wait_end);
         auto restored = set_non_blocking(false);
         if (!connected) {
             return connected;
@@ -498,10 +524,14 @@ namespace rei::net::backend {
                                               "cannot accept on a closed socket"});
         }
 
-        const auto deadline = _deadline();
+        const auto wait_end = _wait_end();
+        if (!wait_end) {
+            return std::unexpected(wait_end.error());
+        }
+
         backend::socket_backend out{m_domain, m_protocol};
         do {
-            auto ready = detail::wait_ready(m_socket, POLLIN, deadline);
+            auto ready = detail::wait_ready(m_socket, POLLIN, *wait_end);
             if (!ready) {
                 return std::unexpected(ready.error());
             }
@@ -527,7 +557,12 @@ namespace rei::net::backend {
                                               "cannot send on a closed socket"});
         }
 
-        return detail::send_message(m_socket, data, nullptr, _deadline());
+        const auto wait_end = _wait_end();
+        if (!wait_end) {
+            return std::unexpected(wait_end.error());
+        }
+
+        return detail::send_message(m_socket, data, nullptr, *wait_end);
     }
 
     auto socket_backend::receive(std::span<std::byte> buffer) -> std::expected<std::size_t, rei::error> {
@@ -540,7 +575,12 @@ namespace rei::net::backend {
             return 0;
         }
 
-        auto received = detail::receive_message(m_socket, buffer, _deadline());
+        const auto wait_end = _wait_end();
+        if (!wait_end) {
+            return std::unexpected(wait_end.error());
+        }
+
+        auto received = detail::receive_message(m_socket, buffer, *wait_end);
         if (received && *received == 0 && m_protocol == net::transport_protocol::tcp) {
             return std::unexpected(rei::error{net::make_error_code(net::error_code::connection_closed),
                                               "peer closed the connection"});
@@ -566,7 +606,12 @@ namespace rei::net::backend {
             return std::unexpected(address.error());
         }
 
-        return detail::send_message(m_socket, data, &*address, _deadline());
+        const auto wait_end = _wait_end();
+        if (!wait_end) {
+            return std::unexpected(wait_end.error());
+        }
+
+        return detail::send_message(m_socket, data, &*address, *wait_end);
     }
 
     auto socket_backend::receive_from(std::span<std::byte> buffer)
@@ -581,8 +626,13 @@ namespace rei::net::backend {
                                               "cannot receive on a closed socket"});
         }
 
+        const auto wait_end = _wait_end();
+        if (!wait_end) {
+            return std::unexpected(wait_end.error());
+        }
+
         detail::socket_address address{};
-        auto received = detail::receive_message(m_socket, buffer, _deadline(), &address);
+        auto received = detail::receive_message(m_socket, buffer, *wait_end, &address);
         if (!received) {
             return std::unexpected(received.error());
         }
@@ -673,9 +723,9 @@ namespace rei::net::backend {
 
     auto socket_backend::set_timeout(std::optional<std::chrono::milliseconds> timeout)
         -> std::expected<void, rei::error> {
-        if (timeout && (timeout->count() < 0 || timeout->count() > std::numeric_limits<int>::max())) {
+        if (timeout && timeout->count() < 0) {
             return std::unexpected(rei::error{std::make_error_code(std::errc::invalid_argument),
-                                              "socket timeout is out of range"});
+                                              "socket timeout cannot be negative"});
         }
 
         m_timeout = timeout;

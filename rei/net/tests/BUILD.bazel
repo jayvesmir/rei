@@ -5,6 +5,7 @@ cc_test(
     size = "small",
 
     srcs = [
+        "certificates.hpp",
         "http_body.cpp",
         "http_client_server.cpp",
         "http_connection.cpp",
@@ -17,6 +18,7 @@ cc_test(
         "socket_timeout.cpp",
         "socket_udp.cpp",
         "support.hpp",
+        "tls.cpp",
     ],
 
     deps = [

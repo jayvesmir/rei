@@ -9,6 +9,7 @@
 
 #include "rei/net/backend/socket.hpp"
 #include "rei/net/endpoint.hpp"
+#include "rei/net/stream.hpp"
 #include "rei/net/transport.hpp"
 
 namespace rei::net {
@@ -54,6 +55,10 @@ namespace rei::net {
 
         [[nodiscard]] auto timeout() const noexcept -> std::optional<std::chrono::milliseconds> {
             return m_backend.timeout();
+        }
+
+        [[nodiscard]] auto deadline() const noexcept -> std::optional<std::chrono::steady_clock::time_point> {
+            return m_backend.deadline();
         }
 
         // Whether a receive would return at once: with data, with the end of the stream or with an error.
@@ -130,7 +135,13 @@ namespace rei::net {
             -> std::expected<void, rei::error> {
             return m_backend.set_timeout(timeout);
         }
+
+        auto set_deadline(std::optional<std::chrono::steady_clock::time_point> deadline) noexcept -> void {
+            m_backend.set_deadline(deadline);
+        }
     };
+
+    static_assert(net::stream<net::socket>);
 
     inline auto resolve(const net::ip_endpoint& endpoint, net::communication_domain domain,
                         net::transport_protocol protocol) -> std::expected<net::ip_endpoint, rei::error> {

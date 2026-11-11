@@ -60,7 +60,10 @@ cc_library(
     include_prefix = "net",
 
     srcs = [],
-    hdrs = ["socket.hpp"],
+    hdrs = [
+        "socket.hpp",
+        "stream.hpp",
+    ],
 
     deps = [
         "//rei/core",
@@ -73,6 +76,40 @@ cc_library(
         },
         no_match_error = "rei/net does not support this OS",
     ),
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"]
+)
+
+cc_library(
+    name = "tls",
+    include_prefix = "net",
+
+    srcs = [
+        "tls/detail.hpp",
+
+        "tls/context.cpp",
+        "tls/identity.cpp",
+        "tls/roots.cpp",
+        "tls/stream.cpp",
+    ],
+
+    hdrs = [
+        "tls.hpp",
+        "tls/error_code.hpp",
+    ],
+
+    deps = [
+        "//rei/core:error",
+        ":common",
+        ":socket",
+        "@aws-lc//:ssl",
+    ],
+
+    linkopts = select({
+        "@platforms//os:windows": ["-lcrypt32"],
+        "//conditions:default": [],
+    }),
 
     cxxopts = ["-std=c++23"],
     visibility = ["//visibility:public"]
@@ -113,13 +150,17 @@ cc_library(
     include_prefix = "net",
 
     srcs = ["http/connection.cpp"],
-    hdrs = ["http/connection.hpp"],
+    hdrs = [
+        "http/any_stream.hpp",
+        "http/connection.hpp",
+    ],
 
     deps = [
         "//rei/core:error",
         ":common",
         ":http",
         ":socket",
+        ":tls",
     ],
 
     cxxopts = ["-std=c++23"],
@@ -144,6 +185,7 @@ cc_library(
         ":http",
         ":http_connection",
         ":socket",
+        ":tls",
     ],
 
     cxxopts = ["-std=c++23"],
@@ -165,6 +207,7 @@ cc_library(
         ":http",
         ":http_connection",
         ":socket",
+        ":tls",
     ],
 
     cxxopts = ["-std=c++23"],
@@ -184,6 +227,7 @@ cc_library(
         ":http_connection",
         ":http_server",
         ":socket",
+        ":tls",
     ],
 
     cxxopts = ["-std=c++23"],

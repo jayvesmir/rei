@@ -21,7 +21,7 @@ namespace rei::net::tests {
     using namespace std::chrono_literals;
 
     namespace {
-        auto read_whole_body(http::connection& connection, std::size_t piece_size)
+        auto read_whole_body(http::connection<net::socket>& connection, std::size_t piece_size)
             -> std::expected<std::string, rei::error> {
             std::array<std::byte, 64> buffer{};
             const auto out = std::span{buffer}.first(piece_size);

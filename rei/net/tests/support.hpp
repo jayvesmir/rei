@@ -14,6 +14,7 @@
 #include "rei/core/tests.hpp"
 #include "rei/net/endpoint.hpp"
 #include "rei/net/socket.hpp"
+#include "rei/net/stream.hpp"
 
 namespace rei::net {
     inline auto operator<<(std::ostream& out, const net::ip_endpoint& endpoint) -> std::ostream& {
@@ -56,13 +57,13 @@ namespace rei::net::tests {
     }
 
     // Reads until `size` bytes arrived so tests don't depend on how TCP segments the stream.
-    inline auto receive_exactly(net::socket& socket, std::size_t size)
-        -> std::expected<std::string, rei::error> {
+    template <net::stream Stream>
+    auto receive_exactly(Stream& stream, std::size_t size) -> std::expected<std::string, rei::error> {
         std::string data(size, '\0');
         std::size_t received = 0;
 
         while (received < size) {
-            auto chunk = socket.receive(std::as_writable_bytes(std::span(data)).subspan(received));
+            auto chunk = stream.receive(std::as_writable_bytes(std::span(data)).subspan(received));
             if (!chunk) {
                 return std::unexpected(chunk.error());
             }

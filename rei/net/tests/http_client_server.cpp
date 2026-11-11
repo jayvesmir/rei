@@ -6,6 +6,7 @@
 #include <expected>
 #include <format>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -24,7 +25,11 @@
 #include "rei/net/http/error_code.hpp"
 #include "rei/net/http/server.hpp"
 #include "rei/net/socket.hpp"
+#include "rei/net/stream.hpp"
+#include "rei/net/tests/certificates.hpp"
 #include "rei/net/tests/support.hpp"
+#include "rei/net/tls.hpp"
+#include "rei/net/tls/error_code.hpp"
 
 namespace rei::net::tests {
     using namespace std::chrono_literals;
@@ -32,13 +37,14 @@ namespace rei::net::tests {
     namespace {
         class test_server {
           private:
+            bool m_secure;
             http::server m_server;
             net::ip_endpoint m_local;
             std::jthread m_thread;
 
           public:
             explicit test_server(http::handler handler, http::server_options options = {})
-                : m_server(std::move(handler), std::move(options)),
+                : m_secure(options.tls.has_value()), m_server(std::move(handler), std::move(options)),
                   m_local(m_server.listen({.address = "127.0.0.1", .port = 0}).value()),
                   m_thread([this] -> void { (void)m_server.run(); }) {}
 
@@ -49,9 +55,19 @@ namespace rei::net::tests {
 
             [[nodiscard]] auto port() const -> std::uint16_t { return m_local.port; }
             [[nodiscard]] auto url(std::string_view path) const -> std::string {
-                return std::format("http://127.0.0.1:{}{}", m_local.port, path);
+                return std::format("{}://127.0.0.1:{}{}", m_secure ? "https" : "http", m_local.port, path);
             }
         };
+
+        auto test_acceptor() -> tls::acceptor {
+            auto identity = tls::identity::make(tests::localhost_certificate, tests::localhost_key);
+            return tls::acceptor::make({.identity = identity.value()}).value();
+        }
+
+        auto test_connector() -> tls::connector {
+            return tls::connector::make({.roots = tls::roots::make(tests::test_ca_certificate).value()})
+                .value();
+        }
 
         auto connect_to(std::uint16_t port) -> std::expected<net::socket, rei::error> {
             auto socket = net::socket::make(net::communication_domain::ipv4, net::transport_protocol::tcp);
@@ -80,9 +96,10 @@ namespace rei::net::tests {
                 .transform([&] -> net::socket { return std::move(*listener); });
         }
 
-        auto send_text(net::socket& socket, std::string_view text) -> std::expected<void, rei::error> {
+        template <net::stream Stream>
+        auto send_text(Stream& stream, std::string_view text) -> std::expected<void, rei::error> {
             while (!text.empty()) {
-                const auto sent = socket.send(tests::as_bytes(text));
+                const auto sent = stream.send(tests::as_bytes(text));
                 if (!sent) {
                     return std::unexpected(sent.error());
                 }
@@ -94,13 +111,14 @@ namespace rei::net::tests {
         }
 
         // Everything until the server closes, or until the text ends with `end`.
-        auto receive_text(net::socket& socket, std::string_view end = {})
+        template <net::stream Stream>
+        auto receive_text(Stream& stream, std::string_view end = {})
             -> std::expected<std::string, rei::error> {
             std::string received;
             std::array<std::byte, 4096> buffer{};
 
             while (end.empty() || !received.ends_with(end)) {
-                const auto read = socket.receive(buffer);
+                const auto read = stream.receive(buffer);
                 if (!read) {
                     if (read.error().code() == net::error_code::connection_closed) {
                         return received;
@@ -216,6 +234,27 @@ namespace rei::net::tests {
         EXPECT_EQ(created->status, http::status::created);
         EXPECT_EQ(created->headers.find("Content-Length"), "0");
         EXPECT_TRUE(created->headers.find("Date"));
+    }
+
+    TEST(http_client_server, router_prefers_a_route_for_the_method_over_one_for_any_method) {
+        http::router router;
+        ASSERT_TRUE(router.route("GET /items", [](http::request&) -> http::response {
+            return {.headers = {{.name = "X-Route", .value = "GET"}}};
+        }));
+        ASSERT_TRUE(router.route("/items", [](http::request&) -> http::response {
+            return {.headers = {{.name = "X-Route", .value = "any"}}};
+        }));
+
+        const test_server server{router};
+        http::client client;
+        const auto route_for = [&](std::string method) -> std::string {
+            auto response = client.send({.method = std::move(method), .url = server.url("/items")});
+            return response ? std::string{response->headers.find("X-Route").value_or("none")} : "failed";
+        };
+
+        EXPECT_EQ(route_for("GET"), "GET");
+        EXPECT_EQ(route_for("HEAD"), "GET");
+        EXPECT_EQ(route_for("POST"), "any");
     }
 
     TEST(http_client_server, connections_are_reused_and_bodies_stream) {
@@ -539,14 +578,143 @@ namespace rei::net::tests {
         http::client impatient{{.io_timeout = 50ms}};
         EXPECT_TRUE(tests::has_error(impatient.send({.url = server.url("/")}), net::error_code::timed_out));
 
-        // A socket can't wait this long, which is what std::nullopt is for.
-        http::client endless{{.io_timeout = std::chrono::hours{24 * 365}}};
-        EXPECT_TRUE(tests::has_error(endless.send({.url = server.url("/")}), std::errc::invalid_argument));
+        http::client backwards{{.io_timeout = -1ms}};
+        EXPECT_TRUE(tests::has_error(backwards.send({.url = server.url("/")}), std::errc::invalid_argument));
 
         http::client client;
-        EXPECT_TRUE(tests::has_error(client.send({.url = "https://example.com/"}), std::errc::not_supported));
+        EXPECT_TRUE(tests::has_error(client.send({.url = "ftp://example.com/"}), std::errc::not_supported));
         EXPECT_TRUE(tests::has_error(client.send({.url = "http://user:secret@127.0.0.1/"}),
                                      std::errc::invalid_argument));
+    }
+
+    TEST(http_client_server, https_verifies_the_server_offers_http_1_1_and_pools_apart_from_http) {
+        const auto handler = [](http::request& request) -> http::response {
+            return {.body = std::to_string(request.peer().port)};
+        };
+        const test_server secure{handler, {.tls = test_acceptor()}};
+        const test_server plain{handler};
+
+        auto identity = tls::identity::make(tests::localhost_certificate, tests::localhost_key);
+        const test_server h2_only{
+            handler,
+            {.tls = tls::acceptor::make({.identity = identity.value(), .application_protocols = {"h2"}})
+                        .value()},
+        };
+
+        http::client defaults;
+        EXPECT_TRUE(
+            tests::has_error(defaults.send({.url = secure.url("/")}), tls::error_code::certificate_rejected));
+        EXPECT_TRUE(
+            tests::has_error(defaults.send({.url = h2_only.url("/")}), tls::error_code::handshake_failed));
+
+        http::client client{{.tls = test_connector()}};
+        const auto first = client.send({.url = secure.url("/")});
+        ASSERT_TRUE(first) << first.error();
+        const auto second = client.send({.url = secure.url("/")});
+        ASSERT_TRUE(second) << second.error();
+        EXPECT_EQ(first->body.text(), second->body.text());
+
+        ASSERT_TRUE(client.send({.url = plain.url("/")}));
+        EXPECT_TRUE(tests::has_error(client.send({.url = std::format("https://127.0.0.1:{}/", plain.port())}),
+                                     tls::error_code::handshake_failed));
+    }
+
+    TEST(http_client_server, https_server_bounds_the_handshake_and_reports_no_peer_that_left) {
+        std::mutex mutex;
+        std::vector<std::error_code> reported;
+
+        {
+            const test_server server{
+                [](http::request&) -> http::response { return {.body = "ok"}; },
+                {
+                    .head_timeout = 200ms,
+                    .on_error = [&](const rei::error& error) -> void {
+                        const std::scoped_lock lock{mutex};
+                        reported.push_back(error.code());
+                    },
+                    .tls = test_acceptor(),
+                },
+            };
+
+            auto socket = connect_to(server.port());
+            ASSERT_TRUE(socket) << socket.error();
+            auto dropped = test_connector().connect(std::move(*socket), "localhost");
+            ASSERT_TRUE(dropped) << dropped.error();
+            ASSERT_TRUE(send_text(*dropped, "GET / HTTP/1.1\r\nHost: a\r\n\r\n"));
+            const auto answered = receive_text(*dropped, "\r\n\r\nok");
+            ASSERT_TRUE(answered) << answered.error();
+            ASSERT_TRUE(dropped->socket().close());
+
+            ASSERT_TRUE(connect_to(server.port()));
+
+            const auto started = std::chrono::steady_clock::now();
+            auto stalled = connect_to(server.port());
+            ASSERT_TRUE(stalled) << stalled.error();
+            const auto closed = receive_text(*stalled);
+            EXPECT_TRUE(closed) << closed.error();
+            const auto elapsed = std::chrono::steady_clock::now() - started;
+            EXPECT_GE(elapsed, 200ms);
+            EXPECT_LT(elapsed, 2s);
+
+            (void)exchange_raw(server.port(), "GET / HTTP/1.1\r\nHost: a\r\n\r\n");
+        }
+
+        const std::scoped_lock lock{mutex};
+        EXPECT_EQ(reported, std::vector{tls::make_error_code(tls::error_code::handshake_failed)});
+    }
+
+    TEST(http_client_server, a_close_without_close_notify_ends_keep_alive_but_truncates_a_body) {
+        auto listener = listen_locally();
+        ASSERT_TRUE(listener) << listener.error();
+        const auto port = listener->local_endpoint().value().port;
+        const auto acceptor = test_acceptor();
+
+        std::jthread server{[&] -> void {
+            const auto accept_request = [&] -> std::optional<tls::stream> {
+                auto socket = listener->accept();
+                if (!socket || !socket->set_timeout(5s)) {
+                    return std::nullopt;
+                }
+
+                auto stream = acceptor.accept(std::move(*socket));
+                if (!stream || !receive_text(*stream, "\r\n\r\n")) {
+                    return std::nullopt;
+                }
+
+                return std::move(*stream);
+            };
+            constexpr std::string_view until_close = "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\npartial";
+
+            auto pooled = accept_request();
+            if (!pooled || !send_text(*pooled, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok") ||
+                !receive_text(*pooled, "\r\n\r\n") || !pooled->socket().close()) {
+                return;
+            }
+
+            auto announced = accept_request();
+            if (!announced || !send_text(*announced, until_close) ||
+                !announced->shutdown(net::shutdown_mode::send)) {
+                return;
+            }
+
+            auto cut = accept_request();
+            if (cut && send_text(*cut, until_close)) {
+                (void)cut->socket().close();
+            }
+        }};
+
+        http::client client{{.tls = test_connector()}};
+        const auto url = std::format("https://localhost:{}/", port);
+
+        const auto first = client.send({.url = url});
+        ASSERT_TRUE(first) << first.error();
+        EXPECT_EQ(first->body.text(), "ok");
+
+        const auto retried = client.send({.url = url});
+        ASSERT_TRUE(retried) << retried.error();
+        EXPECT_EQ(retried->body.text(), "partial");
+
+        EXPECT_TRUE(tests::has_error(client.send({.url = url}), tls::error_code::truncated));
     }
 
     TEST(http_client_server, limits_are_optional) {
@@ -581,7 +749,7 @@ namespace rei::net::tests {
         EXPECT_EQ(response->headers.find("x-299"), std::string(500, 'x'));
     }
 
-    TEST(http_client_server, timeouts_are_optional_and_one_the_socket_refuses_is_reported) {
+    TEST(http_client_server, timeouts_may_be_absent_or_far_off_and_a_negative_one_is_reported) {
         const auto handler = [](http::request&) -> http::response { return {.body = "ok"}; };
 
         const test_server patient{handler, {.head_timeout = std::nullopt, .io_timeout = std::nullopt}};
@@ -599,12 +767,25 @@ namespace rei::net::tests {
             EXPECT_EQ(response->body.text(), "ok");
         }
 
-        // Longer than a socket can wait, so this server can't read a request, and has to say so.
+        const auto year = std::chrono::hours{24 * 365};
+        const test_server unhurried{
+            handler,
+            {.head_timeout = std::chrono::milliseconds::max(), .io_timeout = year},
+        };
+        http::client far{{
+            .connect_timeout = year,
+            .io_timeout = year,
+            .timeout = std::chrono::milliseconds::max(),
+        }};
+
+        const auto answered = far.send({.url = unhurried.url("/")});
+        EXPECT_TRUE(answered) << answered.error();
+
         std::atomic<int> reports{0};
         const test_server broken{
             handler,
             {
-                .head_timeout = std::chrono::milliseconds::max(),
+                .io_timeout = -1ms,
                 .on_error = [&](const rei::error& error) -> void {
                     reports += error.code() == std::errc::invalid_argument ? 1 : 0;
                 },

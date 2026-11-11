@@ -24,22 +24,26 @@
 #include "rei/net/endpoint.hpp"
 #include "rei/net/error_code.hpp"
 #include "rei/net/http.hpp"
+#include "rei/net/http/any_stream.hpp"
 #include "rei/net/http/client.hpp"
 #include "rei/net/http/connection.hpp"
 #include "rei/net/http/error_code.hpp"
 #include "rei/net/http/h1.hpp"
 #include "rei/net/socket.hpp"
+#include "rei/net/tls.hpp"
+#include "rei/net/tls/error_code.hpp"
 #include "rei/net/transport.hpp"
 
 namespace rei::net::http::detail {
     struct pool {
         struct idle_connection {
-            http::connection connection;
+            http::connection<detail::any_stream> connection;
             std::chrono::steady_clock::time_point since;
         };
 
         std::mutex mutex;
         std::map<std::string, std::vector<idle_connection>, std::less<>> idle;
+        std::optional<tls::connector> connector;
     };
 } // namespace rei::net::http::detail
 
@@ -63,6 +67,7 @@ namespace rei::net::http {
             std::string address;
             std::uint16_t port{};
             bool ipv6{}; // a bracketed address in the URL
+            bool secure{};
         };
 
         auto locate(std::string_view text) -> std::expected<destination, rei::error> {
@@ -70,9 +75,10 @@ namespace rei::net::http {
             if (!url) {
                 return std::unexpected(url.error());
             }
-            if (url->scheme() != "http") {
+            const auto secure = url->scheme() == "https";
+            if (!secure && url->scheme() != "http") {
                 return failure(core::make_error_code(core::error_code::not_supported),
-                               "only http URLs are supported");
+                               "only http and https URLs are supported");
             }
             if (!url->username().empty() || !url->password().empty()) {
                 return failure(core::make_error_code(core::error_code::invalid_argument),
@@ -85,7 +91,8 @@ namespace rei::net::http {
                                "the URL has no host");
             }
 
-            const auto port = url->port().value_or(80);
+            const auto port = url->port().value_or(secure ? 443 : 80);
+            auto origin = std::string{url->scheme()} + "://" + std::string{host} + ':' + std::to_string(port);
             auto host_field = std::string{host};
             if (url->port()) {
                 host_field += ':' + std::to_string(port);
@@ -102,27 +109,18 @@ namespace rei::net::http {
 
             return destination{
                 .url = std::move(*url),
-                .origin = std::string{host} + ':' + std::to_string(port),
+                .origin = std::move(origin),
                 .host = std::move(host_field),
                 .target = std::move(target),
                 .address = std::move(address),
                 .port = port,
                 .ipv6 = ipv6,
+                .secure = secure,
             };
         }
 
-        auto connect(const destination& where, std::optional<std::chrono::milliseconds> timeout,
-                     deadline_type deadline) -> std::expected<net::socket, rei::error> {
-            if (deadline) {
-                const auto left = std::chrono::ceil<std::chrono::milliseconds>(
-                    *deadline - std::chrono::steady_clock::now());
-                if (left.count() <= 0) {
-                    return failure(net::make_error_code(net::error_code::timed_out), "deadline passed");
-                }
-
-                timeout = timeout ? std::min(*timeout, left) : left;
-            }
-
+        auto connect(const destination& where, deadline_type deadline)
+            -> std::expected<net::socket, rei::error> {
             // Names try IPv4 first, then IPv6. A failed connect is reported over a failed lookup.
             std::optional<rei::error> error;
 
@@ -143,8 +141,8 @@ namespace rei::net::http {
                     return std::unexpected(socket.error());
                 }
 
-                auto connected = socket->set_timeout(timeout).and_then(
-                    [&] -> std::expected<void, rei::error> { return socket->connect(*endpoint); });
+                socket->set_deadline(deadline);
+                auto connected = socket->connect(*endpoint);
                 if (connected) {
                     return std::move(*socket);
                 }
@@ -160,9 +158,71 @@ namespace rei::net::http {
             return std::unexpected(*error);
         }
 
+        auto connector_for(const http::client_options& options, detail::pool& pool)
+            -> std::expected<tls::connector, rei::error> {
+            if (options.tls) {
+                return *options.tls;
+            }
+
+            const std::scoped_lock lock{pool.mutex};
+            if (!pool.connector) {
+                auto roots = tls::roots::system();
+                if (!roots) {
+                    return std::unexpected(roots.error());
+                }
+
+                auto made = tls::connector::make({.roots = *roots, .application_protocols = {"http/1.1"}});
+                if (!made) {
+                    return std::unexpected(made.error());
+                }
+
+                pool.connector = std::move(*made);
+            }
+
+            return *pool.connector;
+        }
+
+        auto open_stream(const http::client_options& options, detail::pool& pool, const destination& where,
+                         deadline_type deadline) -> std::expected<detail::any_stream, rei::error> {
+            auto connect_deadline = options.connect_timeout.transform(http::deadline_after);
+            if (deadline && (!connect_deadline || *deadline < *connect_deadline)) {
+                connect_deadline = deadline;
+            }
+
+            if (!where.secure) {
+                return connect(where, connect_deadline)
+                    .transform([](net::socket socket) -> detail::any_stream {
+                        return detail::any_stream{std::move(socket)};
+                    });
+            }
+
+            auto connector = connector_for(options, pool);
+            if (!connector) {
+                return std::unexpected(connector.error());
+            }
+
+            auto socket = connect(where, connect_deadline);
+            if (!socket) {
+                return std::unexpected(socket.error());
+            }
+
+            auto stream = connector->connect(std::move(*socket), where.address);
+            if (!stream) {
+                return std::unexpected(stream.error());
+            }
+
+            const auto protocol = stream->application_protocol();
+            if (!protocol.empty() && protocol != "http/1.1") {
+                return failure(core::make_error_code(core::error_code::not_supported),
+                               "the server chose an application protocol other than http/1.1");
+            }
+
+            return detail::any_stream{std::move(*stream)};
+        }
+
         auto take_idle(detail::pool& pool, std::string_view origin,
                        std::optional<std::chrono::milliseconds> idle_timeout)
-            -> std::optional<http::connection> {
+            -> std::optional<http::connection<detail::any_stream>> {
             const std::scoped_lock lock{pool.mutex};
 
             // Every origin is swept, or connections to one that is never asked for again would stay open.
@@ -199,7 +259,7 @@ namespace rei::net::http {
             std::shared_ptr<detail::pool> pool;
             std::string origin;
             std::size_t max_idle{};
-            std::optional<http::connection> connection;
+            std::optional<http::connection<detail::any_stream>> connection;
 
             auto release() -> void {
                 if (connection && connection->reusable() && max_idle > 0) {
@@ -228,7 +288,7 @@ namespace rei::net::http {
                    core::ascii_iequals(name, "transfer-encoding");
         }
 
-        auto send_request(http::connection& connection, const destination& where,
+        auto send_request(http::connection<detail::any_stream>& connection, const destination& where,
                           http::client_request& request) -> std::expected<void, rei::error> {
             http::request_head head{.method = request.method, .target = where.target};
             auto has_host = false;
@@ -285,8 +345,8 @@ namespace rei::net::http {
             }
         }
 
-        auto receive_head(http::connection& connection, http::response_head& head, std::string_view method)
-            -> std::expected<void, rei::error> {
+        auto receive_head(http::connection<detail::any_stream>& connection, http::response_head& head,
+                          std::string_view method) -> std::expected<void, rei::error> {
             while (true) {
                 if (auto received = connection.read_head(head, method); !received) {
                     return received;
@@ -329,17 +389,19 @@ namespace rei::net::http {
 
                 const auto reused = held->connection.has_value();
                 if (!reused) {
-                    auto socket = connect(where, options.connect_timeout, deadline);
-                    if (!socket) {
-                        return std::unexpected(socket.error());
+                    auto stream = open_stream(options, *pool, where, deadline);
+                    if (!stream) {
+                        return std::unexpected(stream.error());
                     }
 
-                    held->connection.emplace(std::move(*socket), limits);
+                    held->connection.emplace(std::move(*stream), limits);
                 }
 
                 auto& connection = *held->connection;
                 connection.deadline(deadline);
-                connection.timeout(options.io_timeout);
+                if (auto limited = connection.timeout(options.io_timeout); !limited) {
+                    return std::unexpected(limited.error());
+                }
 
                 http::response_head head;
                 auto received =
@@ -347,8 +409,9 @@ namespace rei::net::http {
                         return receive_head(connection, head, request.method);
                     });
                 if (!received) {
+                    const auto code = received.error().code();
                     if (reused && retryable &&
-                        received.error().code() == net::error_code::connection_closed) {
+                        (code == net::error_code::connection_closed || code == tls::error_code::truncated)) {
                         continue;
                     }
 

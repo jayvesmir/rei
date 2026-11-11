@@ -1,8 +1,8 @@
 #include <array>
 #include <chrono>
 #include <cstddef>
-#include <limits>
 #include <system_error>
+#include <thread>
 
 #include "gtest/gtest.h"
 
@@ -20,9 +20,6 @@ namespace rei::net::tests {
         ASSERT_TRUE(listener->listen());
 
         EXPECT_TRUE(has_error(listener->set_timeout(-1ms), std::errc::invalid_argument));
-        EXPECT_TRUE(
-            has_error(listener->set_timeout(std::chrono::milliseconds{std::numeric_limits<int>::max()} + 1ms),
-                      std::errc::invalid_argument));
         ASSERT_TRUE(listener->set_timeout(50ms));
         EXPECT_EQ(listener->timeout(), 50ms);
 
@@ -48,6 +45,34 @@ namespace rei::net::tests {
 
         ASSERT_TRUE(accepted->set_timeout(std::nullopt));
         EXPECT_FALSE(accepted->timeout().has_value());
+    }
+
+    TEST(socket_timeout, a_deadline_ends_a_receive_whose_peer_keeps_sending) {
+        auto pair = make_tcp_pair();
+        ASSERT_TRUE(pair) << pair.error();
+
+        std::jthread peer{[&](const std::stop_token& stopping) -> void {
+            while (!stopping.stop_requested() && pair->client.send(as_bytes("x"))) {
+                std::this_thread::sleep_for(5ms);
+            }
+        }};
+
+        ASSERT_TRUE(pair->accepted.set_timeout(std::chrono::milliseconds::max()));
+        const auto started = std::chrono::steady_clock::now();
+        pair->accepted.set_deadline(started + 100ms);
+        EXPECT_EQ(pair->accepted.deadline(), started + 100ms);
+
+        EXPECT_TRUE(has_error(receive_exactly(pair->accepted, 1000), net::error_code::timed_out));
+        const auto elapsed = std::chrono::steady_clock::now() - started;
+        EXPECT_GE(elapsed, 100ms);
+        EXPECT_LT(elapsed, 2s);
+
+        std::array<std::byte, 16> buffer{};
+        std::this_thread::sleep_for(20ms);
+        EXPECT_TRUE(has_error(pair->accepted.receive(buffer), net::error_code::timed_out));
+
+        pair->accepted.set_deadline(std::nullopt);
+        EXPECT_TRUE(pair->accepted.receive(buffer));
     }
 
     TEST(socket_timeout, non_blocking_sockets_ignore_the_timeout) {
