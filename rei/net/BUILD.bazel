@@ -82,6 +82,35 @@ cc_library(
 )
 
 cc_library(
+    name = "tls",
+    include_prefix = "net",
+
+    srcs = [
+        "tls/detail.hpp",
+
+        "tls/context.cpp",
+        "tls/identity.cpp",
+        "tls/roots.cpp",
+        "tls/stream.cpp",
+    ],
+
+    hdrs = [
+        "tls.hpp",
+        "tls/error_code.hpp",
+    ],
+
+    deps = [
+        "//rei/core:error",
+        ":common",
+        ":socket",
+        "@aws-lc//:ssl",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"]
+)
+
+cc_library(
     name = "http",
     include_prefix = "net",
 
@@ -187,6 +216,7 @@ cc_library(
         ":http_connection",
         ":http_server",
         ":socket",
+        ":tls",
     ],
 
     cxxopts = ["-std=c++23"],
