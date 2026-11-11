@@ -166,7 +166,12 @@ namespace rei::net::http {
 
             const std::scoped_lock lock{pool.mutex};
             if (!pool.connector) {
-                auto made = tls::connector::make();
+                auto roots = tls::roots::system();
+                if (!roots) {
+                    return std::unexpected(roots.error());
+                }
+
+                auto made = tls::connector::make({.roots = *roots, .application_protocols = {"http/1.1"}});
                 if (!made) {
                     return std::unexpected(made.error());
                 }
