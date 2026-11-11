@@ -23,6 +23,7 @@
 
 namespace rei::net::tests {
     using namespace std::chrono_literals;
+    using namespace std::string_view_literals;
 
     namespace {
         struct tls_pair {
@@ -36,6 +37,25 @@ namespace rei::net::tests {
             std::vector<std::string> client_protocols;
             std::vector<std::string> server_protocols;
         };
+
+        auto connect(const tls::connector& connector, const tls::acceptor& acceptor,
+                     std::string_view server_name = "localhost") -> std::expected<tls_pair, rei::error> {
+            auto sockets = tests::make_tcp_pair();
+            if (!sockets) {
+                return std::unexpected(sockets.error());
+            }
+
+            auto accepting = std::async(std::launch::async, [&] -> std::expected<tls::stream, rei::error> {
+                return acceptor.accept(std::move(sockets->accepted));
+            });
+            auto client = connector.connect(std::move(sockets->client), server_name);
+            auto server = accepting.get();
+            if (!client || !server) {
+                return std::unexpected(client ? server.error() : client.error());
+            }
+
+            return tls_pair{.client = std::move(*client), .server = std::move(*server)};
+        }
 
         auto handshake(const handshake_options& options = {}) -> std::expected<tls_pair, rei::error> {
             auto roots = tls::roots::make(options.trusted.front());
@@ -65,21 +85,29 @@ namespace rei::net::tests {
                 return std::unexpected(connector ? acceptor.error() : connector.error());
             }
 
-            auto sockets = tests::make_tcp_pair();
-            if (!sockets) {
-                return std::unexpected(sockets.error());
+            return connect(*connector, *acceptor, options.server_name);
+        }
+
+        auto make_connector(std::size_t max_cached_sessions) -> std::expected<tls::connector, rei::error> {
+            return tls::roots::make(tests::test_ca_certificate)
+                .and_then([&](const tls::roots& roots) -> std::expected<tls::connector, rei::error> {
+                    return tls::connector::make({.roots = roots, .max_cached_sessions = max_cached_sessions});
+                });
+        }
+
+        auto make_acceptor() -> std::expected<tls::acceptor, rei::error> {
+            return tls::identity::make(tests::localhost_certificate, tests::localhost_key)
+                .and_then([](const tls::identity& identity) -> std::expected<tls::acceptor, rei::error> {
+                    return tls::acceptor::make({.identity = identity});
+                });
+        }
+
+        auto receive_tickets(tls_pair& pair) -> std::expected<std::string, rei::error> {
+            if (auto sent = pair.server.send(tests::as_bytes("x")); !sent) {
+                return std::unexpected(sent.error());
             }
 
-            auto accepting = std::async(std::launch::async, [&] -> std::expected<tls::stream, rei::error> {
-                return acceptor->accept(std::move(sockets->accepted));
-            });
-            auto client = connector->connect(std::move(sockets->client), options.server_name);
-            auto server = accepting.get();
-            if (!client || !server) {
-                return std::unexpected(client ? server.error() : client.error());
-            }
-
-            return tls_pair{.client = std::move(*client), .server = std::move(*server)};
+            return tests::receive_exactly(pair.client, 1);
         }
     } // namespace
 
@@ -213,5 +241,56 @@ namespace rei::net::tests {
             tests::has_error(tls::roots::make("no certificate in here"), std::errc::invalid_argument));
         EXPECT_TRUE(
             tests::has_error(tls::roots::load("no/such/bundle.pem"), std::errc::no_such_file_or_directory));
+    }
+
+    TEST(tls, a_second_connection_resumes_unless_the_cache_is_off) {
+        auto acceptor = make_acceptor();
+        ASSERT_TRUE(acceptor) << acceptor.error();
+
+        for (auto max_cached_sessions : {256uz, 0uz}) {
+            auto connector = make_connector(max_cached_sessions);
+            ASSERT_TRUE(connector) << connector.error();
+
+            auto first = connect(*connector, *acceptor);
+            ASSERT_TRUE(first) << first.error();
+            EXPECT_FALSE(first->client.resumed());
+            ASSERT_TRUE(receive_tickets(*first));
+
+            auto second = connect(*connector, *acceptor);
+            ASSERT_TRUE(second) << second.error();
+            EXPECT_EQ(second->client.resumed(), max_cached_sessions > 0);
+            EXPECT_EQ(second->server.resumed(), max_cached_sessions > 0);
+        }
+    }
+
+    TEST(tls, a_session_resumes_one_connection_to_its_own_name_and_the_oldest_is_dropped_first) {
+        auto acceptor = make_acceptor();
+        ASSERT_TRUE(acceptor) << acceptor.error();
+        auto connector = make_connector(256);
+        ASSERT_TRUE(connector) << connector.error();
+        auto bounded = make_connector(1);
+        ASSERT_TRUE(bounded) << bounded.error();
+
+        auto resumes = [&](const tls::connector& with, std::string_view server_name) -> bool {
+            auto pair = connect(with, *acceptor, server_name);
+            EXPECT_TRUE(pair) << pair.error();
+            return pair && pair->client.resumed();
+        };
+
+        auto first = connect(*connector, *acceptor, "localhost");
+        ASSERT_TRUE(first) << first.error();
+        ASSERT_TRUE(receive_tickets(*first));
+        EXPECT_FALSE(resumes(*connector, "127.0.0.1"));
+        EXPECT_TRUE(resumes(*connector, "localhost"));
+        EXPECT_TRUE(resumes(*connector, "localhost"));
+        EXPECT_FALSE(resumes(*connector, "localhost"));
+
+        for (auto server_name : {"localhost"sv, "127.0.0.1"sv}) {
+            auto pair = connect(*bounded, *acceptor, server_name);
+            ASSERT_TRUE(pair) << pair.error();
+            ASSERT_TRUE(receive_tickets(*pair));
+        }
+        EXPECT_FALSE(resumes(*bounded, "localhost"));
+        EXPECT_TRUE(resumes(*bounded, "127.0.0.1"));
     }
 } // namespace rei::net::tests
