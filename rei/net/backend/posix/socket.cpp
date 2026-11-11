@@ -77,6 +77,8 @@ namespace rei::net::backend::detail {
             return detail::errno_code();
         }
 
+        constexpr std::chrono::milliseconds longest_poll{std::numeric_limits<int>::max()};
+
         auto should_retry(bool waiting) -> bool {
             return errno == EINTR || (waiting && (errno == EAGAIN || errno == EWOULDBLOCK));
         }
@@ -90,18 +92,21 @@ namespace rei::net::backend::detail {
 
             pollfd target{.fd = descriptor, .events = events, .revents = 0};
             while (true) {
+                // A wait too long for one poll takes several.
                 const auto remaining = std::chrono::ceil<std::chrono::milliseconds>(
                     *deadline - std::chrono::steady_clock::now());
-                const auto result =
-                    ::poll(&target, 1, static_cast<int>(std::max<std::int64_t>(remaining.count(), 0)));
+                const auto wait =
+                    std::clamp(remaining, std::chrono::milliseconds::zero(), detail::longest_poll);
+
+                const auto result = ::poll(&target, 1, static_cast<int>(wait.count()));
                 if (result > 0) {
                     return {};
                 }
-                if (result == 0) {
+                if (result == 0 && remaining <= detail::longest_poll) {
                     return std::unexpected(rei::error{net::make_error_code(net::error_code::timed_out),
                                                       "socket operation timed out"});
                 }
-                if (errno != EINTR) {
+                if (result == -1 && errno != EINTR) {
                     return std::unexpected(rei::error{detail::errno_code(), "failed to wait for socket"});
                 }
             }
@@ -362,7 +367,12 @@ namespace rei::net::backend {
             return std::nullopt;
         }
 
-        return std::chrono::steady_clock::now() + *m_timeout;
+        // A sum past the clock's range stays at its last time point.
+        const auto now = std::chrono::steady_clock::now();
+        const auto latest = std::chrono::steady_clock::time_point::max();
+        const auto fits = *m_timeout < std::chrono::floor<std::chrono::milliseconds>(latest - now);
+
+        return fits ? now + *m_timeout : latest;
     }
 
     auto socket_backend::make(net::communication_domain domain, net::transport_protocol protocol)
@@ -673,9 +683,9 @@ namespace rei::net::backend {
 
     auto socket_backend::set_timeout(std::optional<std::chrono::milliseconds> timeout)
         -> std::expected<void, rei::error> {
-        if (timeout && (timeout->count() < 0 || timeout->count() > std::numeric_limits<int>::max())) {
+        if (timeout && timeout->count() < 0) {
             return std::unexpected(rei::error{std::make_error_code(std::errc::invalid_argument),
-                                              "socket timeout is out of range"});
+                                              "socket timeout cannot be negative"});
         }
 
         m_timeout = timeout;

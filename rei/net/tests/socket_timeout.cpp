@@ -1,7 +1,6 @@
 #include <array>
 #include <chrono>
 #include <cstddef>
-#include <limits>
 #include <system_error>
 
 #include "gtest/gtest.h"
@@ -20,9 +19,6 @@ namespace rei::net::tests {
         ASSERT_TRUE(listener->listen());
 
         EXPECT_TRUE(has_error(listener->set_timeout(-1ms), std::errc::invalid_argument));
-        EXPECT_TRUE(
-            has_error(listener->set_timeout(std::chrono::milliseconds{std::numeric_limits<int>::max()} + 1ms),
-                      std::errc::invalid_argument));
         ASSERT_TRUE(listener->set_timeout(50ms));
         EXPECT_EQ(listener->timeout(), 50ms);
 

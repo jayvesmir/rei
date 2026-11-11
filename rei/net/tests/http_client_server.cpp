@@ -539,9 +539,9 @@ namespace rei::net::tests {
         http::client impatient{{.io_timeout = 50ms}};
         EXPECT_TRUE(tests::has_error(impatient.send({.url = server.url("/")}), net::error_code::timed_out));
 
-        // A socket can't wait this long, which is what std::nullopt is for.
-        http::client endless{{.io_timeout = std::chrono::hours{24 * 365}}};
-        EXPECT_TRUE(tests::has_error(endless.send({.url = server.url("/")}), std::errc::invalid_argument));
+        // The one timeout a socket refuses.
+        http::client backwards{{.io_timeout = -1ms}};
+        EXPECT_TRUE(tests::has_error(backwards.send({.url = server.url("/")}), std::errc::invalid_argument));
 
         http::client client;
         EXPECT_TRUE(tests::has_error(client.send({.url = "https://example.com/"}), std::errc::not_supported));
@@ -581,7 +581,7 @@ namespace rei::net::tests {
         EXPECT_EQ(response->headers.find("x-299"), std::string(500, 'x'));
     }
 
-    TEST(http_client_server, timeouts_are_optional_and_one_the_socket_refuses_is_reported) {
+    TEST(http_client_server, timeouts_may_be_absent_or_far_off_and_a_negative_one_is_reported) {
         const auto handler = [](http::request&) -> http::response { return {.body = "ok"}; };
 
         const test_server patient{handler, {.head_timeout = std::nullopt, .io_timeout = std::nullopt}};
@@ -599,12 +599,27 @@ namespace rei::net::tests {
             EXPECT_EQ(response->body.text(), "ok");
         }
 
-        // Longer than a socket can wait, so this server can't read a request, and has to say so.
+        // Far longer than one poll can wait, and past what the clock can count to.
+        const auto year = std::chrono::hours{24 * 365};
+        const test_server unhurried{
+            handler,
+            {.head_timeout = std::chrono::milliseconds::max(), .io_timeout = year},
+        };
+        http::client far{{
+            .connect_timeout = year,
+            .io_timeout = year,
+            .timeout = std::chrono::milliseconds::max(),
+        }};
+
+        const auto answered = far.send({.url = unhurried.url("/")});
+        EXPECT_TRUE(answered) << answered.error();
+
+        // A negative timeout is the one a socket refuses, so this server can't answer, and has to say so.
         std::atomic<int> reports{0};
         const test_server broken{
             handler,
             {
-                .head_timeout = std::chrono::milliseconds::max(),
+                .io_timeout = -1ms,
                 .on_error = [&](const rei::error& error) -> void {
                     reports += error.code() == std::errc::invalid_argument ? 1 : 0;
                 },
