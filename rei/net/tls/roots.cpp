@@ -1,10 +1,13 @@
+#include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -15,17 +18,15 @@
 #include "rei/net/tls.hpp"
 #include "rei/net/tls/detail.hpp"
 
+#if defined(_WIN32)
+#include <windows.h>
+
+#include <wincrypt.h>
+#endif
+
 namespace rei::net::tls {
     namespace {
         using certificate_list = std::vector<bssl::UniquePtr<X509>>;
-
-        constexpr std::array<std::string_view, 5> system_bundles{
-            "/etc/ssl/certs/ca-certificates.crt",
-            "/etc/pki/tls/certs/ca-bundle.crt",
-            "/etc/ssl/ca-bundle.pem",
-            "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
-            "/etc/ssl/cert.pem",
-        };
 
         auto parse(std::string_view pem, certificate_list& list) -> std::expected<void, rei::error> {
             auto source = detail::memory_bio(pem);
@@ -71,6 +72,80 @@ namespace rei::net::tls {
             return std::string{value};
         }
 
+#if defined(_WIN32)
+        constexpr auto path_separator = ';';
+        constexpr std::string_view missing_roots{"no system root certificates found: set SSL_CERT_FILE"};
+
+        auto server_authentication(const CERT_CONTEXT& context) -> bool {
+            DWORD size = 0;
+            if (!CertGetEnhancedKeyUsage(&context, 0, nullptr, &size)) {
+                return false;
+            }
+
+            std::vector<std::byte> buffer(size);
+            auto& usage = *reinterpret_cast<CERT_ENHKEY_USAGE*>(buffer.data());
+            if (!CertGetEnhancedKeyUsage(&context, 0, &usage, &size)) {
+                return false;
+            }
+
+            if (usage.cUsageIdentifier == 0) {
+                return GetLastError() == static_cast<DWORD>(CRYPT_E_NOT_FOUND);
+            }
+
+            return std::ranges::any_of(
+                std::span{usage.rgpszUsageIdentifier, usage.cUsageIdentifier},
+                [](const char* oid) { return std::string_view{oid} == szOID_PKIX_KP_SERVER_AUTH; });
+        }
+
+        auto parse_system(certificate_list& list) -> std::expected<void, rei::error> {
+            auto* store = CertOpenSystemStoreW(0, L"ROOT");
+            if (store == nullptr) {
+                return detail::failure({static_cast<int>(GetLastError()), std::system_category()},
+                                       "failed to open the ROOT certificate store");
+            }
+
+            for (auto* context = CertEnumCertificatesInStore(store, nullptr); context != nullptr;
+                 context = CertEnumCertificatesInStore(store, context)) {
+                if (!server_authentication(*context)) {
+                    continue;
+                }
+
+                const auto* der = context->pbCertEncoded;
+                bssl::UniquePtr<X509> certificate{
+                    d2i_X509(nullptr, &der, static_cast<long>(context->cbCertEncoded))};
+                if (certificate) {
+                    list.push_back(std::move(certificate));
+                }
+            }
+
+            CertCloseStore(store, 0);
+            return {};
+        }
+#else
+        constexpr auto path_separator = ':';
+        constexpr std::string_view missing_roots{
+            "no system root certificates found: install ca-certificates or set SSL_CERT_FILE"};
+
+        constexpr std::array<std::string_view, 5> system_bundles{
+            "/etc/ssl/certs/ca-certificates.crt",
+            "/etc/pki/tls/certs/ca-bundle.crt",
+            "/etc/ssl/ca-bundle.pem",
+            "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+            "/etc/ssl/cert.pem",
+        };
+
+        auto parse_system(certificate_list& list) -> std::expected<void, rei::error> {
+            for (auto bundle : system_bundles) {
+                std::error_code failed;
+                if (std::filesystem::exists(bundle, failed)) {
+                    return parse_file(bundle, list);
+                }
+            }
+
+            return {};
+        }
+#endif
+
         auto system_certificates() -> std::expected<certificate_list, rei::error> {
             certificate_list list;
             auto file = environment("SSL_CERT_FILE");
@@ -83,7 +158,7 @@ namespace rei::net::tls {
             }
 
             if (directories) {
-                for (auto directory : *directories | std::views::split(':')) {
+                for (auto directory : *directories | std::views::split(path_separator)) {
                     std::error_code failed;
                     std::filesystem::directory_iterator entry{std::string_view{directory}, failed};
 
@@ -95,24 +170,14 @@ namespace rei::net::tls {
             }
 
             if (!file && !directories) {
-                for (auto bundle : system_bundles) {
-                    std::error_code failed;
-                    if (!std::filesystem::exists(bundle, failed)) {
-                        continue;
-                    }
-
-                    if (auto parsed = parse_file(bundle, list); !parsed) {
-                        return std::unexpected(parsed.error());
-                    }
-
-                    break;
+                if (auto parsed = parse_system(list); !parsed) {
+                    return std::unexpected(parsed.error());
                 }
             }
 
             if (list.empty()) {
                 return detail::failure(std::make_error_code(std::errc::no_such_file_or_directory),
-                                       "no system root certificates found: install ca-certificates or set "
-                                       "SSL_CERT_FILE");
+                                       std::string{missing_roots});
             }
 
             return list;
