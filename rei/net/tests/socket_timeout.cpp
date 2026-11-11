@@ -57,7 +57,6 @@ namespace rei::net::tests {
             }
         }};
 
-        // Every byte restarts the timeout, and no timeout is too long to set.
         ASSERT_TRUE(pair->accepted.set_timeout(std::chrono::milliseconds::max()));
         const auto started = std::chrono::steady_clock::now();
         pair->accepted.set_deadline(started + 100ms);
@@ -68,7 +67,6 @@ namespace rei::net::tests {
         EXPECT_GE(elapsed, 100ms);
         EXPECT_LT(elapsed, 2s);
 
-        // Past the deadline nothing is received, not even bytes that have arrived.
         std::array<std::byte, 16> buffer{};
         std::this_thread::sleep_for(20ms);
         EXPECT_TRUE(has_error(pair->accepted.receive(buffer), net::error_code::timed_out));

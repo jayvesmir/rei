@@ -11,7 +11,6 @@
 #include "rei/net/transport.hpp"
 
 namespace rei::net {
-    // A connected byte stream. Its members mean what they mean on net::socket.
     template <typename Stream>
     concept stream =
         std::movable<Stream> && requires(Stream& stream, const Stream& unchanged,

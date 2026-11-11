@@ -539,7 +539,6 @@ namespace rei::net::tests {
         http::client impatient{{.io_timeout = 50ms}};
         EXPECT_TRUE(tests::has_error(impatient.send({.url = server.url("/")}), net::error_code::timed_out));
 
-        // The one timeout a socket refuses.
         http::client backwards{{.io_timeout = -1ms}};
         EXPECT_TRUE(tests::has_error(backwards.send({.url = server.url("/")}), std::errc::invalid_argument));
 
@@ -599,7 +598,6 @@ namespace rei::net::tests {
             EXPECT_EQ(response->body.text(), "ok");
         }
 
-        // Far longer than one poll can wait, and past what the clock can count to.
         const auto year = std::chrono::hours{24 * 365};
         const test_server unhurried{
             handler,
@@ -614,7 +612,6 @@ namespace rei::net::tests {
         const auto answered = far.send({.url = unhurried.url("/")});
         EXPECT_TRUE(answered) << answered.error();
 
-        // A negative timeout is the one a socket refuses, so this server can't answer, and has to say so.
         std::atomic<int> reports{0};
         const test_server broken{
             handler,

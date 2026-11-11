@@ -92,7 +92,6 @@ namespace rei::net::backend::detail {
 
             pollfd target{.fd = descriptor, .events = events, .revents = 0};
             while (true) {
-                // A wait too long for one poll takes several.
                 const auto remaining = std::chrono::ceil<std::chrono::milliseconds>(
                     *deadline - std::chrono::steady_clock::now());
                 const auto wait =
@@ -360,7 +359,6 @@ namespace rei::net::backend {
         // TODO: OpenBSD something
 #endif
 
-        // Not worth failing for: macOS refuses it on a connection the peer has already reset.
         if (m_protocol == net::transport_protocol::tcp) {
             (void)set_no_delay(true);
         }
@@ -368,7 +366,6 @@ namespace rei::net::backend {
         return this->set_non_blocking(false);
     }
 
-    // When a wait that starts now gives up. std::nullopt waits indefinitely.
     auto socket_backend::_wait_end() const
         -> std::expected<std::optional<std::chrono::steady_clock::time_point>, rei::error> {
         if (m_non_blocking) {
@@ -384,7 +381,6 @@ namespace rei::net::backend {
             return m_deadline;
         }
 
-        // The timeout only counts where it ends first, which also keeps the sum within the clock's range.
         const auto latest = m_deadline.value_or(std::chrono::steady_clock::time_point::max());
         const auto ends_first = *m_timeout < std::chrono::floor<std::chrono::milliseconds>(latest - now);
 

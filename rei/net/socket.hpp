@@ -124,8 +124,7 @@ namespace rei::net {
             return m_backend.set_reuse_address(enabled);
         }
 
-        // Sends small writes at once instead of holding them back for the peer's ACK (TCP_NODELAY). TCP
-        // sockets start with it on.
+        // Sends small writes at once instead of holding them back for the peer's ACK (TCP_NODELAY).
         auto set_no_delay(bool enabled) -> std::expected<void, rei::error> {
             return m_backend.set_no_delay(enabled);
         }
@@ -137,8 +136,6 @@ namespace rei::net {
             return m_backend.set_timeout(timeout);
         }
 
-        // No wait of a blocking socket lasts past `deadline`, however often the timeout starts over. Once
-        // it has passed, those calls fail with net::error_code::timed_out. std::nullopt removes it.
         auto set_deadline(std::optional<std::chrono::steady_clock::time_point> deadline) noexcept -> void {
             m_backend.set_deadline(deadline);
         }
