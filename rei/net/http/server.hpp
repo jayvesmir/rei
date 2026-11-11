@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <expected>
 #include <functional>
+#include <list>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -19,9 +20,11 @@
 #include "rei/core/error.hpp"
 #include "rei/net/endpoint.hpp"
 #include "rei/net/http.hpp"
+#include "rei/net/http/any_stream.hpp"
 #include "rei/net/http/connection.hpp"
 #include "rei/net/http/h1.hpp"
 #include "rei/net/socket.hpp"
+#include "rei/net/tls.hpp"
 
 namespace rei::net::http {
     // A request as a handler sees it. The views point into the connection's buffer and are valid for
@@ -38,7 +41,7 @@ namespace rei::net::http {
         std::string m_decoded;
         net::ip_endpoint m_peer;
 
-        http::connection<net::socket>* m_connection{};
+        http::connection<detail::any_stream>& m_connection;
         std::optional<std::uint64_t> m_max_body_size;
         std::optional<std::uint64_t> m_body_size;
         std::uint64_t m_body_received{};
@@ -47,7 +50,7 @@ namespace rei::net::http {
         std::error_code m_body_error;
         bool m_continue_pending{};
 
-        request() = default;
+        explicit request(http::connection<detail::any_stream>& connection) noexcept;
 
         auto _start() -> std::optional<http::status>;
         auto _fail(rei::error error) -> std::unexpected<rei::error>;
@@ -122,6 +125,8 @@ namespace rei::net::http {
 
         // Called from connection threads, possibly at the same time.
         std::function<auto(const rei::error&)->void> on_error;
+
+        std::optional<tls::acceptor> tls;
     };
 
     class server {
@@ -134,17 +139,18 @@ namespace rei::net::http {
         std::atomic<bool> m_stopping{false};
         std::mutex m_mutex;
         std::condition_variable m_changed;
-        std::vector<server::session*> m_sessions;
+        std::list<server::session> m_sessions;
 
-        auto _serve(server::session& session) -> void;
+        auto _serve(server::session& session, net::socket socket) -> void;
         auto _spawn(net::socket socket) -> void;
-        auto _register(server::session* session) -> void;
-        auto _unregister(server::session* session) -> void;
+        auto _register() -> std::list<server::session>::iterator;
+        auto _unregister(std::list<server::session>::iterator session) -> void;
         [[nodiscard]] auto _limits() const -> h1::parse_limits;
         auto _report(const rei::error& error) const -> void;
 
       public:
         explicit server(http::handler handler, http::server_options options = {});
+        ~server();
 
         // Returns the bound endpoint, so port 0 works.
         auto listen(const net::ip_endpoint& local) -> std::expected<net::ip_endpoint, rei::error>;

@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <expected>
 #include <format>
-#include <memory>
+#include <list>
 #include <mutex>
 #include <optional>
 #include <ranges>
@@ -24,16 +24,19 @@
 #include "rei/net/endpoint.hpp"
 #include "rei/net/error_code.hpp"
 #include "rei/net/http.hpp"
+#include "rei/net/http/any_stream.hpp"
 #include "rei/net/http/connection.hpp"
 #include "rei/net/http/error_code.hpp"
 #include "rei/net/http/h1.hpp"
 #include "rei/net/http/server.hpp"
 #include "rei/net/socket.hpp"
+#include "rei/net/tls.hpp"
+#include "rei/net/tls/error_code.hpp"
 #include "rei/net/transport.hpp"
 
 namespace rei::net::http {
     struct server::session {
-        http::connection<net::socket> connection;
+        std::optional<http::connection<detail::any_stream>> connection;
         bool idle{};
     };
 
@@ -53,14 +56,15 @@ namespace rei::net::http {
 
         // The peer left or went quiet, which happens and isn't worth a report.
         auto is_peer_failure(const std::error_code& code) -> bool {
-            return code == net::error_code::connection_closed || code == net::error_code::timed_out;
+            return code == net::error_code::connection_closed || code == tls::error_code::truncated ||
+                   code == net::error_code::timed_out;
         }
 
         // std::nullopt when the peer is gone and nothing should be sent.
         auto error_status(const rei::error& error) -> std::optional<http::status> {
             const auto code = error.code();
 
-            if (code == net::error_code::connection_closed) {
+            if (code == net::error_code::connection_closed || code == tls::error_code::truncated) {
                 return std::nullopt;
             }
             if (code == net::error_code::timed_out) {
@@ -158,9 +162,10 @@ namespace rei::net::http {
             };
         }
 
-        auto write_response(http::connection<net::socket>& connection, const http::request_head& request,
-                            http::response& response, bool closing, http::response_head& head,
-                            std::vector<std::byte>& buffer) -> std::expected<void, rei::error> {
+        auto write_response(http::connection<detail::any_stream>& connection,
+                            const http::request_head& request, http::response& response, bool closing,
+                            http::response_head& head, std::vector<std::byte>& buffer)
+            -> std::expected<void, rei::error> {
             const auto is_head = request.method == http::to_string(http::method::head);
             const auto bodiless =
                 response.status == http::status::no_content || response.status == http::status::not_modified;
@@ -240,15 +245,15 @@ namespace rei::net::http {
         }
 
         // Gives the peer a moment to read the response before unread input makes the close a reset.
-        auto linger(net::socket& socket) -> void {
-            socket.set_deadline(std::nullopt);
-            if (!socket.shutdown(net::shutdown_mode::send) || !socket.set_timeout(linger_wait)) {
+        auto linger(detail::any_stream& stream) -> void {
+            stream.set_deadline(std::nullopt);
+            if (!stream.shutdown(net::shutdown_mode::send) || !stream.set_timeout(linger_wait)) {
                 return;
             }
 
             std::array<std::byte, 4096> sink{};
             for (auto discarded = 0uz; discarded < linger_limit;) {
-                const auto received = socket.receive(sink);
+                const auto received = stream.receive(sink);
                 if (!received) {
                     return;
                 }
@@ -256,7 +261,30 @@ namespace rei::net::http {
                 discarded += *received;
             }
         }
+
+        auto open_stream(const http::server_options& options, net::socket socket)
+            -> std::expected<detail::any_stream, rei::error> {
+            if (!options.tls) {
+                return detail::any_stream{std::move(socket)};
+            }
+
+            socket.set_deadline(options.head_timeout.transform(http::deadline_after));
+            auto stream = options.tls->accept(std::move(socket));
+            if (!stream) {
+                return std::unexpected(stream.error());
+            }
+
+            const auto protocol = stream->application_protocol();
+            if (!protocol.empty() && protocol != "http/1.1") {
+                return std::unexpected(rei::error{core::make_error_code(core::error_code::not_supported),
+                                                  "negotiated an application protocol other than http/1.1"});
+            }
+
+            return detail::any_stream{std::move(*stream)};
+        }
     } // namespace
+
+    request::request(http::connection<detail::any_stream>& connection) noexcept : m_connection(connection) {}
 
     auto request::_start() -> std::optional<http::status> {
         m_params.clear();
@@ -320,14 +348,14 @@ namespace rei::net::http {
 
             const http::response_head interim{.status = http::status::continue_};
             auto answered =
-                m_connection->write_head(interim, m_head.method)
-                    .and_then([this] -> std::expected<void, rei::error> { return m_connection->finish(); });
+                m_connection.write_head(interim, m_head.method)
+                    .and_then([this] -> std::expected<void, rei::error> { return m_connection.finish(); });
             if (!answered) {
                 return _fail(answered.error());
             }
         }
 
-        auto read = m_connection->read_body(out);
+        auto read = m_connection.read_body(out);
         if (!read) {
             return _fail(read.error());
         }
@@ -393,7 +421,7 @@ namespace rei::net::http {
 
         std::array<std::byte, 4096> sink;
         for (auto drained = 0uz; drained <= drain_limit;) {
-            const auto read = m_connection->read_body(sink);
+            const auto read = m_connection.read_body(sink);
             if (!read) {
                 return false;
             }
@@ -409,6 +437,8 @@ namespace rei::net::http {
 
     server::server(http::handler handler, http::server_options options)
         : m_handler(std::move(handler)), m_options(std::move(options)) {}
+
+    server::~server() = default;
 
     auto server::_limits() const -> h1::parse_limits {
         return {
@@ -446,41 +476,36 @@ namespace rei::net::http {
         return bound;
     }
 
-    auto server::_register(server::session* session) -> void {
+    auto server::_register() -> std::list<server::session>::iterator {
         const std::scoped_lock lock{m_mutex};
-        m_sessions.push_back(session);
+        return m_sessions.emplace(m_sessions.end());
     }
 
-    auto server::_unregister(server::session* session) -> void {
+    auto server::_unregister(std::list<server::session>::iterator session) -> void {
         const std::scoped_lock lock{m_mutex};
-        std::erase(m_sessions, session);
+        m_sessions.erase(session);
         m_changed.notify_all();
     }
 
     auto server::_spawn(net::socket socket) -> void {
-        auto session = std::make_unique<server::session>(http::connection{std::move(socket), _limits()});
-        auto* const registered = session.get();
-
         // Registered before the thread starts, so run() can't miss it while waiting for sessions to end.
-        _register(registered);
+        const auto session = _register();
 
         try {
-            std::thread{[this, session = std::move(session)] -> void {
-                _serve(*session);
-                _unregister(session.get());
+            std::thread{[this, session, socket = std::move(socket)] mutable -> void {
+                _serve(*session, std::move(socket));
+                _unregister(session);
             }}.detach();
         } catch (const std::system_error& error) {
-            _unregister(registered);
+            _unregister(session);
             _report(rei::error{error.code(), "failed to start a connection thread"});
         }
     }
 
     auto server::serve(net::socket socket) -> void {
-        server::session session{.connection = http::connection{std::move(socket), _limits()}};
-
-        _register(&session);
-        _serve(session);
-        _unregister(&session);
+        const auto session = _register();
+        _serve(*session, std::move(socket));
+        _unregister(session);
     }
 
     auto server::run() -> std::expected<void, rei::error> {
@@ -519,9 +544,9 @@ namespace rei::net::http {
         (void)m_listener.close();
 
         std::unique_lock lock{m_mutex};
-        for (auto* const session : m_sessions) {
-            if (session->idle) {
-                (void)session->connection.stream().shutdown(net::shutdown_mode::both);
+        for (auto& session : m_sessions) {
+            if (session.idle) {
+                (void)session.connection->stream().socket().shutdown(net::shutdown_mode::both);
             }
         }
 
@@ -529,13 +554,21 @@ namespace rei::net::http {
         return {};
     }
 
-    auto server::_serve(server::session& session) -> void {
-        auto& connection = session.connection;
+    auto server::_serve(server::session& session, net::socket socket) -> void {
+        auto stream = open_stream(m_options, std::move(socket));
+        if (!stream) {
+            if (!is_peer_failure(stream.error().code())) {
+                _report(stream.error());
+            }
 
-        http::request request;
-        request.m_connection = &connection;
+            return;
+        }
+
+        auto& connection = session.connection.emplace(std::move(*stream), _limits());
+
+        http::request request{connection};
         request.m_max_body_size = m_options.max_body_size;
-        request.m_peer = connection.stream().peer_endpoint().value_or(net::ip_endpoint{});
+        request.m_peer = connection.stream().socket().peer_endpoint().value_or(net::ip_endpoint{});
 
         http::response_head head;
         std::vector<std::byte> buffer(copy_size);
