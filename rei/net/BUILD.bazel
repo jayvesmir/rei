@@ -150,13 +150,17 @@ cc_library(
     include_prefix = "net",
 
     srcs = ["http/connection.cpp"],
-    hdrs = ["http/connection.hpp"],
+    hdrs = [
+        "http/any_stream.hpp",
+        "http/connection.hpp",
+    ],
 
     deps = [
         "//rei/core:error",
         ":common",
         ":http",
         ":socket",
+        ":tls",
     ],
 
     cxxopts = ["-std=c++23"],
@@ -181,6 +185,7 @@ cc_library(
         ":http",
         ":http_connection",
         ":socket",
+        ":tls",
     ],
 
     cxxopts = ["-std=c++23"],
@@ -202,6 +207,7 @@ cc_library(
         ":http",
         ":http_connection",
         ":socket",
+        ":tls",
     ],
 
     cxxopts = ["-std=c++23"],
