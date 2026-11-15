@@ -9,3 +9,13 @@ cc_library(
     cxxopts = ["-std=c++23"],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "dictionary",
+    include_prefix = "formats",
+
+    hdrs = ["dictionary.hpp"],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"],
+)
