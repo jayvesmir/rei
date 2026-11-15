@@ -74,15 +74,26 @@ namespace rei::config {
     } // namespace
 
     command::command(std::string_view name, const config::command_info& info)
-        : m_name(name), m_help(info.help), m_version(info.version), m_on_warning(info.on_warning) {}
+        : m_name(name), m_help(info.help), m_version(info.version),
+          m_env_prefix(info.env_prefix.empty() ? std::string{} : std::format("{}__", info.env_prefix)),
+          m_on_warning(info.on_warning) {}
 
     auto command::_add(std::string_view key, std::unique_ptr<detail::binding> target,
                        const config::option_info& info, detail::entry_kind kind) -> void {
+        const auto derived = !info.env && !m_env_prefix.empty();
+
         std::optional<std::string> long_name;
         if (!info.long_name.empty()) {
             long_name = info.long_name;
         } else if (kind == detail::entry_kind::option) {
             long_name = key;
+        }
+
+        std::optional<std::string> env_name;
+        if (derived) {
+            env_name = detail::env_name(m_env_prefix, key);
+        } else if (info.env && !info.env->empty()) {
+            env_name = *info.env;
         }
 
         std::string value_name{info.value_name};
@@ -98,6 +109,8 @@ namespace rei::config {
             .short_name = info.short_name == 0 ? std::nullopt : std::optional{info.short_name},
             .value_name = std::move(value_name),
             .help = std::string{info.help},
+            .env_name = std::move(env_name),
+            .env_derived = derived,
             .required = info.required,
             .hidden = info.hidden,
             .target = std::move(target),
@@ -117,6 +130,16 @@ namespace rei::config {
             }
             if (std::ranges::contains(earlier, entry.key, &detail::entry::key)) {
                 return invalid_schema(std::format("duplicate key '{}'", entry.key));
+            }
+
+            if (entry.env_name && !entry.env_derived) {
+                if (!m_env_prefix.empty() && entry.env_name->starts_with(m_env_prefix)) {
+                    return invalid_schema(
+                        std::format("environment name '{}' starts with '{}'", *entry.env_name, m_env_prefix));
+                }
+                if (std::ranges::contains(earlier, entry.env_name, &detail::entry::env_name)) {
+                    return invalid_schema(std::format("duplicate environment name '{}'", *entry.env_name));
+                }
             }
 
             if (entry.kind == detail::entry_kind::argument) {

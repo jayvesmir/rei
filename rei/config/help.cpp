@@ -94,6 +94,9 @@ namespace rei::config {
             if (const auto choices = entry.target->choices(); !choices.empty()) {
                 words.push_back(std::format("[possible values: {}]", detail::join(choices, ", ")));
             }
+            if (entry.env_name) {
+                words.push_back(std::format("[env: {}]", *entry.env_name));
+            }
 
             return words;
         }

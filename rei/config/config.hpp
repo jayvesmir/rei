@@ -9,6 +9,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -49,6 +50,7 @@ namespace rei::config {
         std::string_view long_name{};
         std::string_view value_name{};
         std::string_view help{};
+        std::optional<std::string_view> env{};
         bool required{};
         bool hidden{};
     };
@@ -56,6 +58,7 @@ namespace rei::config {
     struct command_info {
         std::string_view help{};
         std::string_view version{};
+        std::string_view env_prefix{};
         std::function<auto(const rei::error&)->void> on_warning{};
     };
 
@@ -64,6 +67,7 @@ namespace rei::config {
         std::string m_name;
         std::string m_help;
         std::string m_version;
+        std::string m_env_prefix;
         std::function<auto(const rei::error&)->void> m_on_warning;
         std::vector<detail::entry> m_entries;
 
@@ -88,6 +92,9 @@ namespace rei::config {
 
         auto read_args(int argc, const char* const* argv) -> std::expected<config::layer, rei::error>;
         auto read_args(std::span<const std::string_view> args) -> std::expected<config::layer, rei::error>;
+        [[nodiscard]] auto read_env() const -> std::expected<config::layer, rei::error>;
+        [[nodiscard]] auto read_env(std::span<const std::string_view> environment) const
+            -> std::expected<config::layer, rei::error>;
         auto apply(std::span<const config::layer> layers) -> std::expected<void, rei::error>;
 
         [[nodiscard]] auto help() const -> std::string;

@@ -87,6 +87,7 @@ namespace rei::config {
 
         auto join(std::span<const std::string_view> items, std::string_view separator) -> std::string;
         auto did_you_mean(std::string_view name, std::span<const std::string> candidates) -> std::string;
+        auto env_name(std::string_view prefix, std::string_view key) -> std::string;
 
         template <typename T> auto show(const T& value) -> std::string {
             if constexpr (std::is_enum_v<T>) {
@@ -225,6 +226,8 @@ namespace rei::config {
             std::optional<char> short_name;
             std::string value_name;
             std::string help;
+            std::optional<std::string> env_name;
+            bool env_derived{};
             bool required{};
             bool hidden{};
             std::unique_ptr<detail::binding> target;
