@@ -5,6 +5,7 @@ cc_library(
     include_prefix = "rei",
 
     deps = [
+        "//rei/config",
         "//rei/core",
         "//rei/formats",
         "//rei/net",
