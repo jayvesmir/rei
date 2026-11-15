@@ -91,7 +91,7 @@ namespace rei::config {
         auto apply(std::span<const config::layer> layers) -> std::expected<void, rei::error>;
 
         [[nodiscard]] auto help() const -> std::string;
-        auto report(const rei::error& error) const -> int;
+        [[nodiscard]] auto report(const rei::error& error) const -> int;
     };
 
     template <> struct parser<bool> {
