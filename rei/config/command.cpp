@@ -1,0 +1,235 @@
+#include <algorithm>
+#include <cstdio>
+#include <expected>
+#include <format>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <print>
+#include <ranges>
+#include <source_location>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include "rei/config/config.hpp"
+#include "rei/config/detail.hpp"
+#include "rei/config/error_code.hpp"
+#include "rei/core/ascii.hpp"
+#include "rei/core/error.hpp"
+
+namespace rei::config {
+    namespace {
+        auto invalid_schema(std::string detail,
+                            std::source_location location = std::source_location::current())
+            -> std::unexpected<rei::error> {
+            return std::unexpected(rei::error{error_code::invalid_schema, std::move(detail), location});
+        }
+
+        constexpr auto is_lower(char unit) -> bool {
+            return unit >= 'a' && unit <= 'z';
+        }
+
+        constexpr auto is_upper(char unit) -> bool {
+            return unit >= 'A' && unit <= 'Z';
+        }
+
+        constexpr auto is_digit(char unit) -> bool {
+            return unit >= '0' && unit <= '9';
+        }
+
+        constexpr auto is_segment(std::string_view text) -> bool {
+            if (text.empty() || !is_lower(text.front()) || text.back() == '_') {
+                return false;
+            }
+
+            for (auto i = 1uz; i < text.size(); i++) {
+                const auto valid =
+                    text[i] == '_' ? text[i - 1] != '_' : is_lower(text[i]) || is_digit(text[i]);
+                if (!valid) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        constexpr auto is_key(std::string_view text) -> bool {
+            return !text.empty() &&
+                   std::ranges::all_of(std::views::split(text, '.'), [](auto segment) -> bool {
+                       return is_segment(std::string_view{segment});
+                   });
+        }
+
+        auto prefix(const config::origin& origin) -> std::string {
+            if (origin.source.empty()) {
+                return {};
+            }
+
+            return origin.line == 0 ? std::format("{}: ", origin.source)
+                                    : std::format("{}:{}: ", origin.source, origin.line);
+        }
+    } // namespace
+
+    command::command(std::string_view name, const config::command_info& info)
+        : m_name(name), m_help(info.help), m_version(info.version), m_on_warning(info.on_warning) {}
+
+    auto command::_add(std::string_view key, std::unique_ptr<detail::binding> target,
+                       const config::option_info& info, detail::entry_kind kind) -> void {
+        detail::entry entry{
+            .kind = kind,
+            .key = std::string{key},
+            .value_name = std::string{info.value_name},
+            .help = std::string{info.help},
+            .required = info.required,
+            .hidden = info.hidden,
+            .target = std::move(target),
+        };
+
+        if (!info.long_name.empty()) {
+            entry.long_name = info.long_name;
+        } else if (kind == detail::entry_kind::option) {
+            entry.long_name = key;
+        }
+        if (info.short_name != 0) {
+            entry.short_name = info.short_name;
+        }
+        if (entry.value_name.empty()) {
+            entry.value_name = std::ranges::to<std::string>(key.substr(key.rfind('.') + 1) |
+                                                            std::views::transform(core::to_ascii_upper));
+        }
+
+        m_entries.push_back(std::move(entry));
+    }
+
+    auto command::_validate() const -> std::expected<void, rei::error> {
+        auto variadic = false;
+        auto optional = false;
+
+        for (auto i = 0uz; i < m_entries.size(); i++) {
+            const auto& entry = m_entries[i];
+            const auto earlier = std::span{m_entries}.first(i);
+
+            if (!is_key(entry.key)) {
+                return invalid_schema(std::format("invalid key '{}'", entry.key));
+            }
+            if (std::ranges::contains(earlier, entry.key, &detail::entry::key)) {
+                return invalid_schema(std::format("duplicate key '{}'", entry.key));
+            }
+
+            if (entry.kind == detail::entry_kind::argument) {
+                if (entry.long_name || entry.short_name) {
+                    return invalid_schema(std::format("argument '{}' has an option name", entry.key));
+                }
+                if (variadic) {
+                    return invalid_schema(std::format("argument '{}' follows a variadic one", entry.key));
+                }
+                if (entry.required && optional) {
+                    return invalid_schema(
+                        std::format("required argument '{}' follows an optional one", entry.key));
+                }
+
+                variadic = entry.target->kind() == detail::binding_kind::list;
+                optional = !entry.required;
+                continue;
+            }
+
+            if (!is_key(*entry.long_name)) {
+                return invalid_schema(std::format("invalid option name '--{}'", *entry.long_name));
+            }
+            if (std::ranges::contains(earlier, entry.long_name, &detail::entry::long_name)) {
+                return invalid_schema(std::format("duplicate option name '--{}'", *entry.long_name));
+            }
+
+            if (!entry.short_name) {
+                continue;
+            }
+
+            const auto name = *entry.short_name;
+            if (!is_lower(name) && !is_upper(name) && !is_digit(name)) {
+                return invalid_schema(std::format("invalid short name for '{}'", entry.key));
+            }
+            if (std::ranges::contains(earlier, entry.short_name, &detail::entry::short_name)) {
+                return invalid_schema(std::format("duplicate option name '-{}'", name));
+            }
+        }
+
+        return {};
+    }
+
+    auto command::apply(std::span<const config::layer> layers) -> std::expected<void, rei::error> {
+        if (auto valid = _validate(); !valid) {
+            return valid;
+        }
+
+        for (const auto& layer : layers) {
+            std::vector<std::string_view> unknown;
+
+            for (const auto& value : layer) {
+                if (std::ranges::contains(m_entries, value.key, &detail::entry::key) ||
+                    std::ranges::contains(unknown, value.key)) {
+                    continue;
+                }
+
+                unknown.push_back(value.key);
+
+                const auto keys = std::ranges::to<std::vector<std::string>>(
+                    m_entries | std::views::transform(&detail::entry::key));
+                const auto warning = rei::error{
+                    error_code::unknown_key, std::format("{}unknown key '{}'{}", prefix(value.origin),
+                                                         value.key, detail::did_you_mean(value.key, keys))};
+
+                if (m_on_warning) {
+                    m_on_warning(warning);
+                } else {
+                    std::println(stderr, "warning: {}", warning.detail());
+                }
+            }
+        }
+
+        for (const auto& entry : m_entries) {
+            std::vector<std::reference_wrapper<const config::value>> winning;
+
+            for (const auto& layer : layers | std::views::reverse) {
+                for (const auto& value : layer) {
+                    if (value.key == entry.key) {
+                        winning.emplace_back(value);
+                    }
+                }
+
+                if (!winning.empty()) {
+                    break;
+                }
+            }
+
+            if (winning.empty()) {
+                if (!entry.required) {
+                    continue;
+                }
+
+                return std::unexpected(
+                    rei::error{error_code::missing_required,
+                               entry.kind == detail::entry_kind::argument
+                                   ? std::format("missing required argument <{}>", entry.value_name)
+                                   : std::format("missing required option '--{}'", *entry.long_name)});
+            }
+
+            const auto texts = std::ranges::to<std::vector<std::string_view>>(
+                winning | std::views::transform(&config::value::text));
+
+            if (auto assigned = entry.target->assign(texts); !assigned) {
+                const auto& rejected = winning[assigned.error().index].get();
+                const auto named = rejected.origin.line == 0 && !rejected.origin.source.empty();
+
+                return std::unexpected(rei::error{error_code::invalid_value,
+                                                  std::format("{}{}{}", prefix(rejected.origin),
+                                                              named ? "" : std::format("{}: ", entry.key),
+                                                              assigned.error().reason)});
+            }
+        }
+
+        return {};
+    }
+} // namespace rei::config

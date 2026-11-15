@@ -1,0 +1,28 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+cc_library(
+    name = "config",
+    include_prefix = "config",
+
+    srcs = [
+        "args.cpp",
+        "command.cpp",
+        "help.cpp",
+        "values.cpp",
+    ],
+
+    hdrs = [
+        "config.hpp",
+        "detail.hpp",
+        "error_code.hpp",
+    ],
+
+    deps = [
+        "//rei/core:ascii",
+        "//rei/core:error",
+        "@magic_enum//:magic_enum",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"],
+)
