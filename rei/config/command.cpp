@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <expected>
 #include <format>
@@ -180,6 +181,20 @@ namespace rei::config {
         }
 
         return {};
+    }
+
+    auto command::load(int argc, const char* const* argv) -> std::expected<void, rei::error> {
+        auto args = read_args(argc, argv);
+        if (!args) {
+            return std::unexpected(std::move(args).error());
+        }
+
+        auto env = read_env();
+        if (!env) {
+            return std::unexpected(std::move(env).error());
+        }
+
+        return apply(std::array{*std::move(env), *std::move(args)});
     }
 
     auto command::apply(std::span<const config::layer> layers) -> std::expected<void, rei::error> {

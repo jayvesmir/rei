@@ -90,6 +90,8 @@ namespace rei::config {
             _add(key, std::make_unique<detail::typed_binding<T>>(target), info, detail::entry_kind::argument);
         }
 
+        auto load(int argc, const char* const* argv) -> std::expected<void, rei::error>;
+
         auto read_args(int argc, const char* const* argv) -> std::expected<config::layer, rei::error>;
         auto read_args(std::span<const std::string_view> args) -> std::expected<config::layer, rei::error>;
         [[nodiscard]] auto read_env() const -> std::expected<config::layer, rei::error>;
