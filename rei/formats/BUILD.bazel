@@ -1,0 +1,11 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+cc_library(
+    name = "error",
+    include_prefix = "formats",
+
+    hdrs = ["error_code.hpp"],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"],
+)
