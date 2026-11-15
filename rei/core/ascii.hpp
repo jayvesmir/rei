@@ -8,6 +8,10 @@ namespace rei::core {
         return unit >= 'A' && unit <= 'Z' ? static_cast<char>(unit + ('a' - 'A')) : unit;
     }
 
+    constexpr auto to_ascii_upper(char unit) noexcept -> char {
+        return unit >= 'a' && unit <= 'z' ? static_cast<char>(unit - ('a' - 'A')) : unit;
+    }
+
     constexpr auto ascii_iequals(std::string_view lhs, std::string_view rhs) noexcept -> bool {
         return std::ranges::equal(lhs, rhs, {}, to_ascii_lower, to_ascii_lower);
     }
