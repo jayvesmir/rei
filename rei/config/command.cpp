@@ -78,30 +78,30 @@ namespace rei::config {
 
     auto command::_add(std::string_view key, std::unique_ptr<detail::binding> target,
                        const config::option_info& info, detail::entry_kind kind) -> void {
-        detail::entry entry{
+        std::optional<std::string> long_name;
+        if (!info.long_name.empty()) {
+            long_name = info.long_name;
+        } else if (kind == detail::entry_kind::option) {
+            long_name = key;
+        }
+
+        std::string value_name{info.value_name};
+        if (value_name.empty()) {
+            value_name = std::ranges::to<std::string>(key.substr(key.rfind('.') + 1) |
+                                                      std::views::transform(core::to_ascii_upper));
+        }
+
+        m_entries.push_back({
             .kind = kind,
             .key = std::string{key},
-            .value_name = std::string{info.value_name},
+            .long_name = std::move(long_name),
+            .short_name = info.short_name == 0 ? std::nullopt : std::optional{info.short_name},
+            .value_name = std::move(value_name),
             .help = std::string{info.help},
             .required = info.required,
             .hidden = info.hidden,
             .target = std::move(target),
-        };
-
-        if (!info.long_name.empty()) {
-            entry.long_name = info.long_name;
-        } else if (kind == detail::entry_kind::option) {
-            entry.long_name = key;
-        }
-        if (info.short_name != 0) {
-            entry.short_name = info.short_name;
-        }
-        if (entry.value_name.empty()) {
-            entry.value_name = std::ranges::to<std::string>(key.substr(key.rfind('.') + 1) |
-                                                            std::views::transform(core::to_ascii_upper));
-        }
-
-        m_entries.push_back(std::move(entry));
+        });
     }
 
     auto command::_validate() const -> std::expected<void, rei::error> {
