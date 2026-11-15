@@ -19,3 +19,32 @@ cc_library(
     cxxopts = ["-std=c++23"],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "toml",
+    include_prefix = "formats",
+
+    srcs = ["toml/value.cpp"],
+    hdrs = ["toml.hpp"],
+
+    deps = [
+        ":dictionary",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "formats",
+    include_prefix = "formats",
+
+    deps = [
+        ":dictionary",
+        ":error",
+        ":toml",
+    ],
+
+    cxxopts = ["-std=c++23"],
+    visibility = ["//visibility:public"],
+)
