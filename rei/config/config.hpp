@@ -29,7 +29,7 @@ namespace rei::config {
     struct value {
         std::string key;
         std::string text;
-        config::origin origin;
+        config::origin origin{};
     };
 
     using layer = std::vector<config::value>;
