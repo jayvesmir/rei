@@ -1,4 +1,4 @@
-build --macos_minimum_os=13.3
+build --macos_minimum_os=26.0
 
 common --enable_platform_specific_config
 build:windows --enable_runfiles
