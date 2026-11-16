@@ -1,9 +1,9 @@
 #include <algorithm>
-#include <array>
 #include <cstdio>
 #include <expected>
 #include <format>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <print>
@@ -12,6 +12,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -152,6 +153,7 @@ namespace rei::config {
             .env_derived = derived,
             .required = info.required,
             .hidden = info.hidden,
+            .config_file = info.config_file,
             .target = std::move(target),
         });
     }
@@ -188,6 +190,17 @@ namespace rei::config {
                 }
                 if (std::ranges::contains(visible, entry.env_name, &detail::entry::env_name)) {
                     return invalid_schema(std::format("duplicate environment name '{}'", *entry.env_name));
+                }
+            }
+
+            if (entry.config_file) {
+                if (!entry.target->paths()) {
+                    return invalid_schema(
+                        std::format("configuration file option '{}' is not a path", entry.key));
+                }
+                if (std::ranges::contains(visible, true, &detail::entry::config_file)) {
+                    return invalid_schema(
+                        std::format("'{}' is a second configuration file option", entry.key));
                 }
             }
 
@@ -297,7 +310,39 @@ namespace rei::config {
             return std::unexpected(std::move(env).error());
         }
 
-        return apply(std::array{*std::move(env), *std::move(args)});
+        std::vector<config::layer> layers;
+        layers.push_back(*std::move(env));
+        layers.push_back(*std::move(args));
+
+        const auto entries = _active_entries();
+        const auto option = std::ranges::find(entries, true, &detail::entry::config_file);
+
+        if (option != entries.end()) {
+            const detail::entry& entry = *option;
+
+            const auto given = assign(entry, layers);
+            if (!given) {
+                return std::unexpected(given.error());
+            }
+
+            const auto paths = entry.target->paths();
+            std::vector<config::layer> files;
+
+            for (const auto& path : *paths) {
+                auto file = config::read_toml(path);
+
+                if (file) {
+                    files.push_back(*std::move(file));
+                } else if (*given || file.error().code() != std::errc::no_such_file_or_directory) {
+                    return std::unexpected(std::move(file).error());
+                }
+            }
+
+            std::ranges::move(layers, std::back_inserter(files));
+            layers = std::move(files);
+        }
+
+        return apply(layers);
     }
 
     auto command::apply(std::span<const config::layer> layers) -> std::expected<void, rei::error> {

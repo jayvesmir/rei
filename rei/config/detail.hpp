@@ -128,6 +128,7 @@ namespace rei::config {
                 -> std::expected<void, detail::rejection> = 0;
             [[nodiscard]] virtual auto shown_default() const -> std::string = 0;
             [[nodiscard]] virtual auto choices() const -> std::span<const std::string_view> = 0;
+            [[nodiscard]] virtual auto paths() const -> std::optional<std::vector<std::filesystem::path>> = 0;
             [[nodiscard]] virtual auto kind() const noexcept -> detail::binding_kind = 0;
         };
 
@@ -205,6 +206,20 @@ namespace rei::config {
                 }
             }
 
+            [[nodiscard]] auto paths() const -> std::optional<std::vector<std::filesystem::path>> override {
+                using list = std::vector<std::filesystem::path>;
+
+                if constexpr (!std::same_as<element, std::filesystem::path>) {
+                    return std::nullopt;
+                } else if constexpr (detail::specializes<T, std::vector>) {
+                    return m_target;
+                } else if constexpr (detail::specializes<T, std::optional>) {
+                    return m_target ? list{*m_target} : list{};
+                } else {
+                    return list{m_target};
+                }
+            }
+
             [[nodiscard]] auto kind() const noexcept -> detail::binding_kind override {
                 if constexpr (detail::specializes<T, std::vector>) {
                     return detail::binding_kind::list;
@@ -232,6 +247,7 @@ namespace rei::config {
             bool env_derived{};
             bool required{};
             bool hidden{};
+            bool config_file{};
             std::unique_ptr<detail::binding> target;
         };
 

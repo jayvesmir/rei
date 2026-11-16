@@ -54,6 +54,7 @@ namespace rei::config {
         std::optional<std::string_view> env{};
         bool required{};
         bool hidden{};
+        bool config_file{};
     };
 
     struct command_info {
