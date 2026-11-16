@@ -72,12 +72,14 @@ namespace rei::config {
         std::function<auto(const rei::error&)->void> m_on_warning;
         std::vector<detail::entry> m_entries;
         std::list<config::command> m_subcommands;
+        bool m_selected{};
 
         auto _add(std::string_view key, std::unique_ptr<detail::binding> target,
                   const config::option_info& info, detail::entry_kind kind) -> void;
         [[nodiscard]] auto
         _validate(std::span<const std::reference_wrapper<const detail::entry>> inherited = {}) const
             -> std::expected<void, rei::error>;
+        auto _deselect() noexcept -> void;
         [[nodiscard]] auto _builtins() const -> std::vector<detail::builtin>;
         [[nodiscard]] auto _usage() const -> std::string;
 
@@ -105,6 +107,7 @@ namespace rei::config {
             -> std::expected<config::layer, rei::error>;
         auto apply(std::span<const config::layer> layers) -> std::expected<void, rei::error>;
 
+        [[nodiscard]] auto selected() const noexcept -> bool { return m_selected; }
         [[nodiscard]] auto help() const -> std::string;
         [[nodiscard]] auto report(const rei::error& error) const -> int;
     };

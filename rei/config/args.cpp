@@ -2,7 +2,9 @@
 #include <cstddef>
 #include <expected>
 #include <format>
+#include <functional>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -18,11 +20,12 @@ namespace rei::config {
     namespace {
         class reader {
           private:
+            std::span<const std::string_view> m_args;
             std::span<const detail::entry> m_entries;
             std::span<const detail::builtin> m_builtins;
-            std::span<const std::string_view> m_args;
             config::layer m_layer;
             std::size_t m_positionals{};
+            bool m_options_ended{};
 
             auto _add(const detail::entry& entry, std::string_view text, std::string_view source) -> void {
                 m_layer.push_back({
@@ -175,22 +178,26 @@ namespace rei::config {
             }
 
           public:
-            reader(std::span<const detail::entry> entries, std::span<const detail::builtin> builtins,
-                   std::span<const std::string_view> args)
-                : m_entries(entries), m_builtins(builtins), m_args(args) {}
+            explicit reader(std::span<const std::string_view> args) : m_args(args) {}
 
-            auto read() -> std::expected<config::layer, rei::error> {
-                auto options_ended = false;
+            auto read(std::span<const detail::entry> entries, std::span<const detail::builtin> builtins,
+                      bool has_subcommands) -> std::expected<std::optional<std::string_view>, rei::error> {
+                m_entries = entries;
+                m_builtins = builtins;
 
                 while (!m_args.empty()) {
                     const auto arg = m_args.front();
                     m_args = m_args.subspan(1);
 
                     std::expected<void, rei::error> read;
-                    if (options_ended || arg.size() < 2 || !arg.starts_with('-')) {
+                    if (m_options_ended || arg.size() < 2 || !arg.starts_with('-')) {
+                        if (has_subcommands) {
+                            return arg;
+                        }
+
                         read = _positional(arg);
                     } else if (arg == "--") {
-                        options_ended = true;
+                        m_options_ended = true;
                     } else if (arg.starts_with("--")) {
                         read = _long(arg);
                     } else {
@@ -202,8 +209,10 @@ namespace rei::config {
                     }
                 }
 
-                return std::move(m_layer);
+                return std::nullopt;
             }
+
+            [[nodiscard]] auto layer() && -> config::layer { return std::move(m_layer); }
         };
     } // namespace
 
@@ -222,7 +231,40 @@ namespace rei::config {
             return std::unexpected(std::move(valid).error());
         }
 
-        const auto builtins = _builtins();
-        return reader{m_entries, builtins, args}.read();
+        _deselect();
+
+        reader reading{args};
+        std::reference_wrapper<config::command> current{*this};
+
+        while (true) {
+            auto& active = current.get();
+            active.m_selected = true;
+
+            const auto builtins = active._builtins();
+            auto stopped = reading.read(active.m_entries, builtins, !active.m_subcommands.empty());
+            if (!stopped) {
+                return std::unexpected(std::move(stopped).error());
+            }
+            if (active.m_subcommands.empty()) {
+                return std::move(reading).layer();
+            }
+
+            const auto name = *stopped;
+            if (!name) {
+                return std::unexpected(rei::error{error_code::missing_command, "missing command"});
+            }
+
+            const auto chosen = std::ranges::find(active.m_subcommands, *name, &command::m_name);
+            if (chosen == active.m_subcommands.end()) {
+                const auto known = std::ranges::to<std::vector<std::string>>(
+                    active.m_subcommands | std::views::transform(&command::m_name));
+
+                return std::unexpected(
+                    rei::error{error_code::unknown_command, std::format("unknown command '{}'{}", *name,
+                                                                        detail::did_you_mean(*name, known))});
+            }
+
+            current = *chosen;
+        }
     }
 } // namespace rei::config

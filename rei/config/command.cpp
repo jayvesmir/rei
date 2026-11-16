@@ -210,6 +210,14 @@ namespace rei::config {
         return {};
     }
 
+    auto command::_deselect() noexcept -> void {
+        m_selected = false;
+
+        for (auto& child : m_subcommands) {
+            child._deselect();
+        }
+    }
+
     auto command::load(int argc, const char* const* argv) -> std::expected<void, rei::error> {
         auto args = read_args(argc, argv);
         if (!args) {
