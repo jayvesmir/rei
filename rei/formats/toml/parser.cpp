@@ -21,6 +21,7 @@
 #include "rei/formats/dictionary.hpp"
 #include "rei/formats/error_code.hpp"
 #include "rei/formats/toml.hpp"
+#include "rei/formats/toml/detail.hpp"
 
 namespace rei::formats::toml {
     namespace {
@@ -50,13 +51,8 @@ namespace rei::formats::toml {
             return unit == '0' || unit == '1';
         }
 
-        constexpr auto is_bare(char unit) noexcept -> bool {
-            return is_digit(unit) || (unit >= 'a' && unit <= 'z') || (unit >= 'A' && unit <= 'Z') ||
-                   unit == '_' || unit == '-';
-        }
-
         constexpr auto is_scalar(char unit) noexcept -> bool {
-            return is_bare(unit) || unit == '+' || unit == '.' || unit == ':';
+            return detail::is_bare(unit) || unit == '+' || unit == '.' || unit == ':';
         }
 
         constexpr auto is_control(char unit) noexcept -> bool {
@@ -570,7 +566,7 @@ namespace rei::formats::toml {
                 }
 
                 const auto start = m_at;
-                while (!_done() && is_bare(m_text[m_at])) {
+                while (!_done() && detail::is_bare(m_text[m_at])) {
                     m_at++;
                 }
 
