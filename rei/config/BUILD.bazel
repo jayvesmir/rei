@@ -1,4 +1,5 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("//rei:copts.bzl", "CXXOPTS")
 
 cc_library(
     name = "config",
@@ -24,6 +25,6 @@ cc_library(
         "@magic_enum//:magic_enum",
     ],
 
-    cxxopts = ["-std=c++23"],
+    cxxopts = CXXOPTS,
     visibility = ["//visibility:public"],
 )
