@@ -1,0 +1,8 @@
+[http]
+host = "127.0.0.1"
+port = 8443
+index_files = ["index.html", "index.htm"]
+io_timeout = "30s"
+
+[log]
+level = "warn"

@@ -12,10 +12,17 @@ cc_test(
         "layers.cpp",
         "subcommands.cpp",
         "support.hpp",
+        "toml.cpp",
+    ],
+
+    data = [
+        "override.toml",
+        "site.toml",
     ],
 
     deps = [
         "//rei/config",
+        "//rei/formats:error",
         "@googletest//:gtest_main",
     ],
 
@@ -24,6 +31,8 @@ cc_test(
         "REI_CONFIG_TESTS__HTTP__INDEX_FILES": "a.html,b.html",
         "REI_CONFIG_TESTS__AUTH__TOKEN": "secret",
         "REI_CONFIG_TESTS_PORT": "lots",
+        "REI_CONFIG_FILES__CONFIG": "$(rootpath site.toml)",
+        "REI_CONFIG_FILES__HTTP__HOST": "::1",
     },
 
     cxxopts = CXXOPTS,
