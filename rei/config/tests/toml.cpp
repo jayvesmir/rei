@@ -153,23 +153,6 @@ level = "warn"
         ASSERT_TRUE(app.load(static_cast<int>(none.size()), none.data()));
         EXPECT_FALSE(config);
 
-        const std::array<const char*, 3> absent{"app", "--config", "missing.toml"};
-        const auto failed = app.load(static_cast<int>(absent.size()), absent.data());
-        ASSERT_FALSE(failed);
-        EXPECT_EQ(failed.error().code(), std::errc::no_such_file_or_directory);
-        EXPECT_EQ(failed.error().detail(), std::format("missing.toml: {}", failed.error().code().message()));
-
-        settings untouched;
-        std::filesystem::path fallback{"missing.toml"};
-        config::command quiet{"app"};
-        quiet.option("config", fallback, {.config_file = true});
-        declare(quiet, untouched);
-
-        const std::array<const char*, 1> bare{"app"};
-        const auto skipped = quiet.load(static_cast<int>(bare.size()), bare.data());
-        ASSERT_TRUE(skipped) << skipped.error();
-        EXPECT_EQ(untouched.port, 8080);
-
         settings layered;
         std::vector<std::filesystem::path> configs;
         config::command several{"app"};
@@ -183,5 +166,41 @@ level = "warn"
         EXPECT_EQ(layered.port, 9000);
         EXPECT_EQ(layered.index_files, (std::vector<std::string>{"home.html"}));
         EXPECT_EQ(layered.log_level, level::warn);
+    }
+
+    TEST(config_toml, only_a_missing_default_file_is_skipped) {
+        const std::array<const char*, 1> bare{"app"};
+        const std::array<const char*, 3> absent{"app", "--config", "missing.toml"};
+
+        settings untouched;
+        std::filesystem::path fallback{"missing.toml"};
+        config::command quiet{"app"};
+        quiet.option("config", fallback, {.config_file = true});
+        declare(quiet, untouched);
+
+        const auto skipped = quiet.load(static_cast<int>(bare.size()), bare.data());
+        ASSERT_TRUE(skipped) << skipped.error();
+        EXPECT_EQ(untouched.port, 8080);
+
+        const auto failed = quiet.load(static_cast<int>(absent.size()), absent.data());
+        ASSERT_FALSE(failed);
+        EXPECT_EQ(failed.error().code(), std::errc::no_such_file_or_directory);
+        EXPECT_EQ(failed.error().detail(), std::format("missing.toml: {}", failed.error().code().message()));
+
+        std::filesystem::path named;
+        config::command strict{"app", {.env_prefix = "REI_CONFIG_MISSING"}};
+        strict.option("config", named, {.config_file = true});
+
+        const auto refused = strict.load(static_cast<int>(bare.size()), bare.data());
+        ASSERT_FALSE(refused);
+        EXPECT_EQ(refused.error().code(), std::errc::no_such_file_or_directory);
+
+        std::filesystem::path directory{"."};
+        config::command unreadable{"app"};
+        unreadable.option("config", directory, {.config_file = true});
+
+        const auto denied = unreadable.load(static_cast<int>(bare.size()), bare.data());
+        ASSERT_FALSE(denied);
+        EXPECT_NE(denied.error().code(), std::errc::no_such_file_or_directory);
     }
 } // namespace rei::config::tests

@@ -104,6 +104,8 @@ namespace rei::config::tests {
         EXPECT_TRUE(invalid("timeout", "1w", "'1w' is not a duration such as 1m30s"));
         EXPECT_TRUE(invalid("timeout", "999999999999999999d",
                             "999999999999999999d is out of range (up to 9223372036854775807s)"));
+        EXPECT_TRUE(invalid("timeout", "9223372036854775807s1s",
+                            "9223372036854775807s1s is out of range (up to 9223372036854775807s)"));
 
         ASSERT_TRUE(tests::set(app, "io_timeout", "1h"));
         EXPECT_EQ(io_timeout, std::chrono::hours{1});

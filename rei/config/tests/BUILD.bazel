@@ -22,6 +22,7 @@ cc_test(
 
     deps = [
         "//rei/config",
+        "//rei/core:error",
         "//rei/formats:error",
         "@googletest//:gtest_main",
     ],
@@ -33,6 +34,7 @@ cc_test(
         "REI_CONFIG_TESTS_PORT": "lots",
         "REI_CONFIG_FILES__CONFIG": "$(rootpath site.toml)",
         "REI_CONFIG_FILES__HTTP__HOST": "::1",
+        "REI_CONFIG_MISSING__CONFIG": "missing.toml",
     },
 
     cxxopts = CXXOPTS,

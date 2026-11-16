@@ -97,6 +97,8 @@ namespace rei::config::tests {
                                       "unknown option '--http.prot'; did you mean '--http.port'?"));
         EXPECT_TRUE(tests::fails_with(tests::read(app, {"--no-verbos"}), config::error_code::unknown_option,
                                       "unknown option '--no-verbos'; did you mean '--no-verbose'?"));
+        EXPECT_TRUE(tests::fails_with(tests::read(app, {"--htp.prot"}), config::error_code::unknown_option,
+                                      "unknown option '--htp.prot'; did you mean '--http.port'?"));
         EXPECT_TRUE(tests::fails_with(tests::read(app, {"--no-http.port"}),
                                       config::error_code::unknown_option, "unknown option '--no-http.port'"));
         EXPECT_TRUE(tests::fails_with(tests::read(app, {"--log.verbose"}), config::error_code::unknown_option,
