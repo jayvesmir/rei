@@ -9,6 +9,7 @@ bazel_dep(name = "magic_enum", version = "0.9.8")
 bazel_dep(name = "aws-lc", version = "5.1.0.bcr.3")
 
 bazel_dep(name = "googletest", version = "1.18.0", dev_dependency = True)
+bazel_dep(name = "nlohmann_json", version = "3.12.0.bcr.2", dev_dependency = True)
 
 # Unicode data for IDNA in core::url.
 idna_tables = use_repo_rule("//rei/core:url/idna_tables.bzl", "idna_tables")
@@ -33,5 +34,25 @@ http_file(
     name = "idna_test_v2",
     url = "https://www.unicode.org/Public/18.0.0/idna/IdnaTestV2.txt",
     sha256 = "0236b75c5b20dfd857b3b5cf75509887959d6ab00d6c7bda9b7dc3df518c1fde",
+    dev_dependency = True,
+)
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+# Conformance cases for formats::toml.
+http_archive(
+    name = "toml_test",
+    url = "https://github.com/toml-lang/toml-test/archive/refs/tags/v2.2.0.tar.gz",
+    sha256 = "fdab2779b3902eb08030f389a5d53e95c5b49404149ac6f2eda5227a5363c232",
+    strip_prefix = "toml-test-2.2.0",
+    build_file_content = """
+filegroup(
+    name = "tests",
+    srcs = glob(["tests/**"]),
+    visibility = ["//visibility:public"],
+)
+
+exports_files(["tests/files-toml-1.1.0"])
+""",
     dev_dependency = True,
 )
