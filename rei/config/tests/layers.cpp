@@ -124,6 +124,9 @@ namespace rei::config::tests {
 
         ASSERT_TRUE(tests::set(app, "root", "/srv/www"));
         EXPECT_EQ(root, "/srv/www");
+        ASSERT_TRUE(tests::set(app, "root", "/srv/caf\u00e9"));
+        EXPECT_EQ(root, std::filesystem::path{u8"/srv/caf\u00e9"});
+        EXPECT_TRUE(app.help().contains("[default: /srv/caf\u00e9]"));
 
         ASSERT_TRUE(tests::set(app, "listen", "localhost:80"));
         EXPECT_EQ(listen.host, "localhost");

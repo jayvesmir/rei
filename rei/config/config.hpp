@@ -156,9 +156,7 @@ namespace rei::config {
     };
 
     template <> struct parser<std::filesystem::path> {
-        static auto parse(std::string_view text) -> std::expected<std::filesystem::path, std::string> {
-            return std::filesystem::path{text};
-        }
+        static auto parse(std::string_view text) -> std::expected<std::filesystem::path, std::string>;
     };
 
     template <typename T>

@@ -16,8 +16,34 @@
 #include "rei/config/error_code.hpp"
 #include "rei/core/error.hpp"
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 namespace rei::config {
     namespace {
+#if defined(_WIN32)
+        auto from_code_page(std::string_view text) -> std::string {
+            if (text.empty()) {
+                return {};
+            }
+
+            const auto bytes = static_cast<int>(text.size());
+            const auto units = MultiByteToWideChar(CP_ACP, 0, text.data(), bytes, nullptr, 0);
+
+            std::wstring wide(static_cast<std::size_t>(units), L'\0');
+            MultiByteToWideChar(CP_ACP, 0, text.data(), bytes, wide.data(), units);
+
+            const auto size =
+                WideCharToMultiByte(CP_UTF8, 0, wide.data(), units, nullptr, 0, nullptr, nullptr);
+
+            std::string utf8(static_cast<std::size_t>(size), '\0');
+            WideCharToMultiByte(CP_UTF8, 0, wide.data(), units, utf8.data(), size, nullptr, nullptr);
+
+            return utf8;
+        }
+#endif
+
         class reader {
           private:
             std::span<const std::string_view> m_args;
@@ -217,10 +243,19 @@ namespace rei::config {
     } // namespace
 
     auto command::read_args(int argc, const char* const* argv) -> std::expected<config::layer, rei::error> {
+#if defined(_WIN32)
+        std::vector<std::string> converted;
+        for (auto i = 1; i < argc; i++) {
+            converted.push_back(from_code_page(argv[i]));
+        }
+
+        const std::vector<std::string_view> args(converted.begin(), converted.end());
+#else
         std::vector<std::string_view> args;
         for (auto i = 1; i < argc; i++) {
             args.emplace_back(argv[i]);
         }
+#endif
 
         return read_args(args);
     }

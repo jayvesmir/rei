@@ -95,7 +95,8 @@ namespace rei::config {
             if constexpr (std::is_enum_v<T>) {
                 return std::string{magic_enum::enum_name(value)};
             } else if constexpr (std::same_as<T, std::filesystem::path>) {
-                return value.string();
+                const auto text = value.u8string();
+                return std::string(text.begin(), text.end());
             } else if constexpr (std::formattable<T, char>) {
                 return std::format("{}", value);
             } else {

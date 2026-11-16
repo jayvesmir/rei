@@ -126,7 +126,7 @@ namespace rei::config {
     } // namespace
 
     auto read_toml(const std::filesystem::path& path) -> std::expected<config::layer, rei::error> {
-        const auto source = path.string();
+        const auto source = detail::show(path);
         const auto failed = [&] -> std::unexpected<rei::error> {
             const std::error_code code{errno != 0 ? errno : EIO, std::generic_category()};
             return std::unexpected(rei::error{code, std::format("{}: {}", source, code.message())});

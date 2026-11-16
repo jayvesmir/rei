@@ -23,6 +23,7 @@ cc_library(
     deps = [
         "//rei/core:ascii",
         "//rei/core:error",
+        "//rei/core:utf8",
         "//rei/formats:toml",
         "@magic_enum//:magic_enum",
     ],

@@ -4,6 +4,7 @@
 #include <concepts>
 #include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <format>
 #include <optional>
 #include <string>
@@ -13,6 +14,10 @@
 #include "rei/config/config.hpp"
 #include "rei/config/detail.hpp"
 #include "rei/core/ascii.hpp"
+
+#if defined(_WIN32)
+#include "rei/core/utf8.hpp"
+#endif
 
 namespace rei::config {
     namespace {
@@ -163,6 +168,19 @@ namespace rei::config {
         }
 
         return std::unexpected(std::format("'{}' is not a boolean", text));
+    }
+
+    auto parser<std::filesystem::path>::parse(std::string_view text)
+        -> std::expected<std::filesystem::path, std::string> {
+#if defined(_WIN32)
+        if (!core::utf8::is_valid(text)) {
+            return std::unexpected(std::string{"the path is not valid UTF-8"});
+        }
+
+        return std::filesystem::path{std::u8string(text.begin(), text.end())};
+#else
+        return std::filesystem::path{text};
+#endif
     }
 
     auto parser<float>::parse(std::string_view text) -> std::expected<float, std::string> {
