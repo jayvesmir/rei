@@ -1,10 +1,12 @@
 #pragma once
 
 #include <algorithm>
+#include <bit>
 #include <concepts>
 #include <cstddef>
 #include <functional>
 #include <initializer_list>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -22,7 +24,59 @@ namespace rei::formats {
         };
 
       private:
+        static constexpr auto indexed_from = 16uz;
+
         std::vector<dictionary::entry> m_entries;
+        std::unique_ptr<std::vector<std::size_t>> m_slots;
+
+        [[nodiscard]] auto _locate(std::string_view key) const noexcept -> std::optional<std::size_t> {
+            if (!m_slots) {
+                const auto found = std::ranges::find(m_entries, key, &entry::key);
+                return found == m_entries.end()
+                           ? std::nullopt
+                           : std::optional{static_cast<std::size_t>(found - m_entries.begin())};
+            }
+
+            const auto& slots = *m_slots;
+            const auto mask = slots.size() - 1;
+
+            for (auto slot = std::hash<std::string_view>{}(key)&mask;; slot = (slot + 1) & mask) {
+                if (slots[slot] == 0) {
+                    return std::nullopt;
+                }
+                if (m_entries[slots[slot] - 1].key == key) {
+                    return slots[slot] - 1;
+                }
+            }
+        }
+
+        auto _place(std::size_t position) noexcept -> void {
+            auto& slots = *m_slots;
+            const auto mask = slots.size() - 1;
+
+            auto slot = std::hash<std::string_view>{}(m_entries[position].key) & mask;
+            while (slots[slot] != 0) {
+                slot = (slot + 1) & mask;
+            }
+
+            slots[slot] = position + 1;
+        }
+
+        auto _reindex() -> void {
+            if (m_entries.size() < indexed_from) {
+                m_slots.reset();
+                return;
+            }
+
+            if (!m_slots) {
+                m_slots = std::make_unique<std::vector<std::size_t>>();
+            }
+
+            m_slots->assign(std::bit_ceil(m_entries.size() * 2), 0);
+            for (auto i = 0uz; i < m_entries.size(); i++) {
+                _place(i);
+            }
+        }
 
       public:
         dictionary() = default;
@@ -33,16 +87,33 @@ namespace rei::formats {
             }
         }
 
+        dictionary(const dictionary& other)
+            : m_entries(other.m_entries),
+              m_slots(other.m_slots ? std::make_unique<std::vector<std::size_t>>(*other.m_slots) : nullptr) {}
+
+        dictionary(dictionary&&) noexcept = default;
+        ~dictionary() = default;
+
+        auto operator=(const dictionary& other) -> dictionary& {
+            if (this != &other) {
+                *this = dictionary{other};
+            }
+
+            return *this;
+        }
+
+        auto operator=(dictionary&&) noexcept -> dictionary& = default;
+
         [[nodiscard]] auto find(std::string_view key) const noexcept
             -> std::optional<std::reference_wrapper<const Value>> {
-            const auto found = std::ranges::find(m_entries, key, &entry::key);
-            return found == m_entries.end() ? std::nullopt : std::optional{std::cref(found->value)};
+            const auto position = _locate(key);
+            return position ? std::optional{std::cref(m_entries[*position].value)} : std::nullopt;
         }
 
         [[nodiscard]] auto find(std::string_view key) noexcept
             -> std::optional<std::reference_wrapper<Value>> {
-            const auto found = std::ranges::find(m_entries, key, &entry::key);
-            return found == m_entries.end() ? std::nullopt : std::optional{std::ref(found->value)};
+            const auto position = _locate(key);
+            return position ? std::optional{std::ref(m_entries[*position].value)} : std::nullopt;
         }
 
         template <std::convertible_to<std::string_view>... Keys>
@@ -56,22 +127,35 @@ namespace rei::formats {
         }
 
         [[nodiscard]] auto contains(std::string_view key) const noexcept -> bool {
-            return std::ranges::contains(m_entries, key, &entry::key);
+            return _locate(key).has_value();
         }
 
         auto set(std::string_view key, Value value) -> Value& {
-            const auto found = std::ranges::find(m_entries, key, &entry::key);
-            if (found != m_entries.end()) {
-                found->value = std::move(value);
-                return found->value;
+            if (const auto position = _locate(key)) {
+                auto& held = m_entries[*position].value;
+                held = std::move(value);
+                return held;
             }
 
-            return m_entries.emplace_back(std::string{key}, std::move(value)).value;
+            m_entries.emplace_back(std::string{key}, std::move(value));
+            if (m_slots && m_entries.size() * 2 <= m_slots->size()) {
+                _place(m_entries.size() - 1);
+            } else {
+                _reindex();
+            }
+
+            return m_entries.back().value;
         }
 
         auto remove(std::string_view key) -> bool {
-            return std::erase_if(m_entries,
-                                 [&](const entry& candidate) -> bool { return candidate.key == key; }) != 0;
+            const auto position = _locate(key);
+            if (!position) {
+                return false;
+            }
+
+            m_entries.erase(m_entries.begin() + static_cast<std::ptrdiff_t>(*position));
+            _reindex();
+            return true;
         }
 
         [[nodiscard]] auto size() const noexcept -> std::size_t { return m_entries.size(); }
