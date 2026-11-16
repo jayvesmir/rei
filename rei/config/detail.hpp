@@ -23,6 +23,7 @@
 #include "rei/config/error_code.hpp"
 
 namespace rei::config {
+    struct origin;
     template <typename T> struct parser;
 
     namespace detail {
@@ -88,6 +89,7 @@ namespace rei::config {
         auto join(std::span<const std::string_view> items, std::string_view separator) -> std::string;
         auto did_you_mean(std::string_view name, std::span<const std::string> candidates) -> std::string;
         auto env_name(std::string_view prefix, std::string_view key) -> std::string;
+        auto origin_prefix(const config::origin& origin) -> std::string;
 
         template <typename T> auto show(const T& value) -> std::string {
             if constexpr (std::is_enum_v<T>) {

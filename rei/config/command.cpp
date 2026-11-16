@@ -63,16 +63,18 @@ namespace rei::config {
                        return is_segment(std::string_view{segment});
                    });
         }
-
-        auto prefix(const config::origin& origin) -> std::string {
-            if (origin.source.empty()) {
-                return {};
-            }
-
-            return origin.line == 0 ? std::format("{}: ", origin.source)
-                                    : std::format("{}:{}: ", origin.source, origin.line);
-        }
     } // namespace
+
+    auto detail::origin_prefix(const config::origin& origin) -> std::string {
+        if (origin.line == 0) {
+            return origin.source.empty() ? std::string{} : std::format("{}: ", origin.source);
+        }
+        if (origin.source.empty()) {
+            return std::format("{}: ", origin.line);
+        }
+
+        return std::format("{}:{}: ", origin.source, origin.line);
+    }
 
     command::command(std::string_view name, const config::command_info& info)
         : m_name(name), m_full_name(name), m_help(info.help), m_version(info.version),
@@ -279,9 +281,10 @@ namespace rei::config {
 
                 unknown.push_back(value.key);
 
-                const auto warning = rei::error{
-                    error_code::unknown_key, std::format("{}unknown key '{}'{}", prefix(value.origin),
-                                                         value.key, detail::did_you_mean(value.key, keys))};
+                const auto warning =
+                    rei::error{error_code::unknown_key,
+                               std::format("{}unknown key '{}'{}", detail::origin_prefix(value.origin),
+                                           value.key, detail::did_you_mean(value.key, keys))};
 
                 if (m_on_warning) {
                     m_on_warning(warning);
@@ -325,10 +328,10 @@ namespace rei::config {
                 const auto& rejected = winning[assigned.error().index].get();
                 const auto named = rejected.origin.line == 0 && !rejected.origin.source.empty();
 
-                return std::unexpected(rei::error{error_code::invalid_value,
-                                                  std::format("{}{}{}", prefix(rejected.origin),
-                                                              named ? "" : std::format("{}: ", entry.key),
-                                                              assigned.error().reason)});
+                return std::unexpected(rei::error{
+                    error_code::invalid_value,
+                    std::format("{}{}{}", detail::origin_prefix(rejected.origin),
+                                named ? "" : std::format("{}: ", entry.key), assigned.error().reason)});
             }
         }
 
