@@ -13,6 +13,9 @@ namespace rei::config {
         invalid_value,
         missing_required,
         unexpected_argument,
+        unknown_command,
+        missing_command,
+        unsupported_value,
         help_requested,
         version_requested,
     };
@@ -39,6 +42,12 @@ namespace rei::config {
                     return "missing required option";
                 case error_code::unexpected_argument:
                     return "unexpected argument";
+                case error_code::unknown_command:
+                    return "unknown command";
+                case error_code::missing_command:
+                    return "missing command";
+                case error_code::unsupported_value:
+                    return "unsupported value";
                 case error_code::help_requested:
                     return "help requested";
                 case error_code::version_requested:
