@@ -10,6 +10,7 @@ cc_library(
         "command.cpp",
         "env.cpp",
         "help.cpp",
+        "toml.cpp",
         "values.cpp",
     ],
 

@@ -117,6 +117,10 @@ namespace rei::config {
         [[nodiscard]] auto report(const rei::error& error) const -> int;
     };
 
+    auto read_toml(const std::filesystem::path& path) -> std::expected<config::layer, rei::error>;
+    auto parse_toml(std::string_view text, std::string_view source = {})
+        -> std::expected<config::layer, rei::error>;
+
     template <> struct parser<bool> {
         static auto parse(std::string_view text) -> std::expected<bool, std::string>;
     };
