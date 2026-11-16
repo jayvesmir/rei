@@ -121,6 +121,15 @@ host = "b.example"
         EXPECT_EQ((*mirrors)[1].find("host").and_then(tests::line_of), 20u);
     }
 
+    TEST(toml_parse, tells_a_float_with_a_long_exponent_from_a_date) {
+        const auto document = toml::parse("small = 1.5e-00003\nscaled = 250e-00002\nday = 1979-05-27\n");
+        ASSERT_TRUE(document) << document.error();
+
+        EXPECT_EQ(document->find("small").and_then(&toml::value::as_floating), 1.5e-3);
+        EXPECT_EQ(document->find("scaled").and_then(&toml::value::as_floating), 2.5);
+        EXPECT_EQ(document->find("day").and_then(&toml::value::as_date), 1979y / 5 / 27);
+    }
+
     TEST(toml_parse, errors_name_the_place_and_the_reason) {
         for (const auto& [text, detail] : {
                  std::pair<std::string_view, std::string_view>{"key = ", "1:7: expected a value"},

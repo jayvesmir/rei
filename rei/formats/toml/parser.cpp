@@ -767,7 +767,8 @@ namespace rei::formats::toml {
                     return toml::value{token == "true"};
                 }
 
-                const auto dated = token.size() >= 10 && token[4] == '-' && is_digit(token[0]);
+                const auto dated = token.size() >= 10 && token[4] == '-' &&
+                                   std::ranges::all_of(token.substr(0, 4), is_digit);
                 const auto rest = _rest();
                 if (dated && token.size() == 10 && rest.size() >= 4 && rest[0] == ' ' && is_digit(rest[1]) &&
                     is_digit(rest[2]) && rest[3] == ':') {
