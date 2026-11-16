@@ -207,7 +207,7 @@ namespace rei::formats::toml {
                     m_out += i == 0 ? "" : ", ";
                     m_trail.emplace_back(i);
 
-                    if (auto item = _inline(items[i]); !item) {
+                    if (auto item = _value(items[i]); !item) {
                         return item;
                     }
 
@@ -239,7 +239,7 @@ namespace rei::formats::toml {
                 return {};
             }
 
-            auto _inline(const toml::value& value) -> std::expected<void, rei::error> {
+            auto _value(const toml::value& value) -> std::expected<void, rei::error> {
                 switch (value.kind()) {
                 case kind::string:
                     if (!core::utf8::is_valid(*value.as_string())) {
@@ -280,7 +280,7 @@ namespace rei::formats::toml {
                 m_out += " = ";
                 m_trail.emplace_back(key);
 
-                if (auto written = _inline(value); !written) {
+                if (auto written = _value(value); !written) {
                     return written;
                 }
 
@@ -370,7 +370,7 @@ namespace rei::formats::toml {
             }
 
             auto single(const toml::value& value) -> std::expected<std::string, rei::error> {
-                if (auto written = _inline(value); !written) {
+                if (auto written = _value(value); !written) {
                     return std::unexpected(std::move(written).error());
                 }
 
