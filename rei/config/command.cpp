@@ -63,6 +63,42 @@ namespace rei::config {
                        return is_segment(std::string_view{segment});
                    });
         }
+
+        auto assign(const detail::entry& entry, std::span<const config::layer> layers)
+            -> std::expected<bool, rei::error> {
+            std::vector<std::reference_wrapper<const config::value>> winning;
+
+            for (const auto& layer : layers | std::views::reverse) {
+                for (const auto& value : layer) {
+                    if (value.key == entry.key) {
+                        winning.emplace_back(value);
+                    }
+                }
+
+                if (!winning.empty()) {
+                    break;
+                }
+            }
+
+            if (winning.empty()) {
+                return false;
+            }
+
+            const auto texts = std::ranges::to<std::vector<std::string_view>>(
+                winning | std::views::transform(&config::value::text));
+
+            if (auto assigned = entry.target->assign(texts); !assigned) {
+                const auto& rejected = winning[assigned.error().index].get();
+                const auto named = rejected.origin.line == 0 && !rejected.origin.source.empty();
+
+                return std::unexpected(rei::error{
+                    error_code::invalid_value,
+                    std::format("{}{}{}", detail::origin_prefix(rejected.origin),
+                                named ? "" : std::format("{}: ", entry.key), assigned.error().reason)});
+            }
+
+            return true;
+        }
     } // namespace
 
     auto detail::origin_prefix(const config::origin& origin) -> std::string {
@@ -295,44 +331,19 @@ namespace rei::config {
         }
 
         for (const detail::entry& entry : _active_entries()) {
-            std::vector<std::reference_wrapper<const config::value>> winning;
-
-            for (const auto& layer : layers | std::views::reverse) {
-                for (const auto& value : layer) {
-                    if (value.key == entry.key) {
-                        winning.emplace_back(value);
-                    }
-                }
-
-                if (!winning.empty()) {
-                    break;
-                }
+            const auto assigned = assign(entry, layers);
+            if (!assigned) {
+                return std::unexpected(assigned.error());
+            }
+            if (*assigned || !entry.required) {
+                continue;
             }
 
-            if (winning.empty()) {
-                if (!entry.required) {
-                    continue;
-                }
-
-                return std::unexpected(
-                    rei::error{error_code::missing_required,
-                               entry.kind == detail::entry_kind::argument
-                                   ? std::format("missing required argument <{}>", entry.value_name)
-                                   : std::format("missing required option '--{}'", *entry.long_name)});
-            }
-
-            const auto texts = std::ranges::to<std::vector<std::string_view>>(
-                winning | std::views::transform(&config::value::text));
-
-            if (auto assigned = entry.target->assign(texts); !assigned) {
-                const auto& rejected = winning[assigned.error().index].get();
-                const auto named = rejected.origin.line == 0 && !rejected.origin.source.empty();
-
-                return std::unexpected(rei::error{
-                    error_code::invalid_value,
-                    std::format("{}{}{}", detail::origin_prefix(rejected.origin),
-                                named ? "" : std::format("{}: ", entry.key), assigned.error().reason)});
-            }
+            return std::unexpected(
+                rei::error{error_code::missing_required,
+                           entry.kind == detail::entry_kind::argument
+                               ? std::format("missing required argument <{}>", entry.value_name)
+                               : std::format("missing required option '--{}'", *entry.long_name)});
         }
 
         return {};
