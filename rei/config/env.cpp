@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <expected>
+#include <functional>
 #include <ranges>
 #include <span>
 #include <string>
@@ -95,6 +96,7 @@ namespace rei::config {
             return std::unexpected(std::move(valid).error());
         }
 
+        const auto entries = _active_entries();
         config::layer layer;
 
         for (const auto variable : environment) {
@@ -116,27 +118,29 @@ namespace rei::config {
                 });
             };
 
-            const auto entry = std::ranges::find_if(m_entries, [&](const detail::entry& candidate) -> bool {
+            const auto match = std::ranges::find_if(entries, [&](const detail::entry& candidate) -> bool {
                 return prefixed ? candidate.key == key : !candidate.env_derived && candidate.env_name == name;
             });
 
-            if (entry == m_entries.end()) {
+            if (match == entries.end()) {
                 if (prefixed) {
                     add(key, text);
                 }
                 continue;
             }
-            if (prefixed && !entry->env_derived) {
+
+            const detail::entry& entry = *match;
+            if (prefixed && !entry.env_derived) {
                 continue;
             }
 
-            if (entry->target->kind() != detail::binding_kind::list) {
-                add(entry->key, text);
+            if (entry.target->kind() != detail::binding_kind::list) {
+                add(entry.key, text);
                 continue;
             }
 
             for (const auto item : std::views::split(text, ',')) {
-                add(entry->key, std::string_view{item});
+                add(entry.key, std::string_view{item});
             }
         }
 

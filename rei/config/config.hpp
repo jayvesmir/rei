@@ -80,6 +80,9 @@ namespace rei::config {
         _validate(std::span<const std::reference_wrapper<const detail::entry>> inherited = {}) const
             -> std::expected<void, rei::error>;
         auto _deselect() noexcept -> void;
+        [[nodiscard]] auto _active_entries() const
+            -> std::vector<std::reference_wrapper<const detail::entry>>;
+        [[nodiscard]] auto _keys() const -> std::vector<std::string>;
         [[nodiscard]] auto _builtins() const -> std::vector<detail::builtin>;
         [[nodiscard]] auto _usage() const -> std::string;
 

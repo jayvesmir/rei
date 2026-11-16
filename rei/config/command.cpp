@@ -218,6 +218,30 @@ namespace rei::config {
         }
     }
 
+    auto command::_active_entries() const -> std::vector<std::reference_wrapper<const detail::entry>> {
+        std::vector<std::reference_wrapper<const detail::entry>> entries{m_entries.begin(), m_entries.end()};
+
+        const auto chosen = std::ranges::find(m_subcommands, true, &command::m_selected);
+        if (chosen != m_subcommands.end()) {
+            const auto deeper = chosen->_active_entries();
+            entries.insert(entries.end(), deeper.begin(), deeper.end());
+        }
+
+        return entries;
+    }
+
+    auto command::_keys() const -> std::vector<std::string> {
+        auto keys =
+            std::ranges::to<std::vector<std::string>>(m_entries | std::views::transform(&detail::entry::key));
+
+        for (const auto& child : m_subcommands) {
+            const auto deeper = child._keys();
+            keys.insert(keys.end(), deeper.begin(), deeper.end());
+        }
+
+        return keys;
+    }
+
     auto command::load(int argc, const char* const* argv) -> std::expected<void, rei::error> {
         auto args = read_args(argc, argv);
         if (!args) {
@@ -237,19 +261,18 @@ namespace rei::config {
             return valid;
         }
 
+        const auto keys = _keys();
+
         for (const auto& layer : layers) {
             std::vector<std::string_view> unknown;
 
             for (const auto& value : layer) {
-                if (std::ranges::contains(m_entries, value.key, &detail::entry::key) ||
-                    std::ranges::contains(unknown, value.key)) {
+                if (std::ranges::contains(keys, value.key) || std::ranges::contains(unknown, value.key)) {
                     continue;
                 }
 
                 unknown.push_back(value.key);
 
-                const auto keys = std::ranges::to<std::vector<std::string>>(
-                    m_entries | std::views::transform(&detail::entry::key));
                 const auto warning = rei::error{
                     error_code::unknown_key, std::format("{}unknown key '{}'{}", prefix(value.origin),
                                                          value.key, detail::did_you_mean(value.key, keys))};
@@ -262,7 +285,7 @@ namespace rei::config {
             }
         }
 
-        for (const auto& entry : m_entries) {
+        for (const detail::entry& entry : _active_entries()) {
             std::vector<std::reference_wrapper<const config::value>> winning;
 
             for (const auto& layer : layers | std::views::reverse) {
