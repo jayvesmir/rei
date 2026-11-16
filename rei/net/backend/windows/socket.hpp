@@ -1,0 +1,86 @@
+#pragma once
+
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <optional>
+#include <span>
+
+#include "rei/core/error.hpp"
+#include "rei/net/endpoint.hpp"
+#include "rei/net/transport.hpp"
+
+namespace rei::net::backend {
+    using native_handle = std::uintptr_t;
+
+    inline constexpr backend::native_handle invalid_handle = ~backend::native_handle{};
+
+    auto resolve(const net::ip_endpoint& endpoint, net::communication_domain domain,
+                 net::transport_protocol protocol) -> std::expected<net::ip_endpoint, rei::error>;
+
+    class socket_backend {
+      private:
+        backend::native_handle m_socket{backend::invalid_handle};
+        net::communication_domain m_domain{net::communication_domain::ipv4};
+        net::transport_protocol m_protocol{net::transport_protocol::tcp};
+        std::optional<std::chrono::milliseconds> m_timeout;
+        std::optional<std::chrono::steady_clock::time_point> m_deadline;
+        bool m_non_blocking{false};
+
+        socket_backend(net::communication_domain domain, net::transport_protocol protocol) noexcept;
+        auto _configure() -> std::expected<void, rei::error>;
+        [[nodiscard]] auto _wait_end() const
+            -> std::expected<std::optional<std::chrono::steady_clock::time_point>, rei::error>;
+
+      public:
+        socket_backend() = default;
+        ~socket_backend();
+
+        socket_backend(const socket_backend&) = delete;
+        auto operator=(const socket_backend&) -> socket_backend& = delete;
+        socket_backend(socket_backend&& other) noexcept;
+        auto operator=(socket_backend&& other) noexcept -> socket_backend&;
+
+        static auto make(net::communication_domain domain, net::transport_protocol protocol)
+            -> std::expected<socket_backend, rei::error>;
+
+        [[nodiscard]] auto is_open() const noexcept -> bool { return m_socket != backend::invalid_handle; }
+        [[nodiscard]] auto native_handle() const noexcept -> backend::native_handle { return m_socket; }
+        [[nodiscard]] auto domain() const noexcept -> net::communication_domain { return m_domain; }
+        [[nodiscard]] auto protocol() const noexcept -> net::transport_protocol { return m_protocol; }
+        [[nodiscard]] auto timeout() const noexcept -> std::optional<std::chrono::milliseconds> {
+            return m_timeout;
+        }
+        [[nodiscard]] auto deadline() const noexcept -> std::optional<std::chrono::steady_clock::time_point> {
+            return m_deadline;
+        }
+        [[nodiscard]] auto readable() const noexcept -> bool;
+
+        auto connect(const net::ip_endpoint& endpoint) -> std::expected<void, rei::error>;
+
+        auto shutdown(net::shutdown_mode mode) -> std::expected<void, rei::error>;
+        auto close() -> std::expected<void, rei::error>;
+
+        auto bind(const net::ip_endpoint& local) -> std::expected<void, rei::error>;
+        auto listen(std::int32_t backlog) -> std::expected<void, rei::error>;
+        auto accept() -> std::expected<backend::socket_backend, rei::error>;
+
+        auto send(std::span<const std::byte> data) -> std::expected<std::size_t, rei::error>;
+        auto receive(std::span<std::byte> buffer) -> std::expected<std::size_t, rei::error>;
+        auto send_to(std::span<const std::byte> data, const net::ip_endpoint& remote)
+            -> std::expected<std::size_t, rei::error>;
+        auto receive_from(std::span<std::byte> buffer) -> std::expected<net::datagram_result, rei::error>;
+
+        [[nodiscard]] auto local_endpoint() const -> std::expected<net::ip_endpoint, rei::error>;
+        [[nodiscard]] auto peer_endpoint() const -> std::expected<net::ip_endpoint, rei::error>;
+
+        auto set_non_blocking(bool enabled) -> std::expected<void, rei::error>;
+        auto set_reuse_address(bool enabled) -> std::expected<void, rei::error>;
+        auto set_no_delay(bool enabled) -> std::expected<void, rei::error>;
+        auto set_timeout(std::optional<std::chrono::milliseconds> timeout) -> std::expected<void, rei::error>;
+        auto set_deadline(std::optional<std::chrono::steady_clock::time_point> deadline) noexcept -> void {
+            m_deadline = deadline;
+        }
+    };
+} // namespace rei::net::backend

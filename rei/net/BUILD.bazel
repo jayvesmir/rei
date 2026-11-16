@@ -50,7 +50,10 @@ cc_library(
     deps = [
         "//rei/core",
         ":common",
+        "@magic_enum//:magic_enum"
     ],
+
+    linkopts = ["ws2_32.lib"],
 
     cxxopts = CXXOPTS,
     visibility = ["//visibility:private"],
@@ -73,7 +76,7 @@ cc_library(
         {
             "@platforms//os:linux": [":socket_posix"],
             "@platforms//os:osx": [":socket_posix"],
-            # "@platforms//os:windows": [":socket_windows"],
+            "@platforms//os:windows": [":socket_windows"],
         },
         no_match_error = "rei/net does not support this OS",
     ),
@@ -108,7 +111,7 @@ cc_library(
     ],
 
     linkopts = select({
-        "@platforms//os:windows": ["-lcrypt32"],
+        "@platforms//os:windows": ["crypt32.lib"],
         "//conditions:default": [],
     }),
 
