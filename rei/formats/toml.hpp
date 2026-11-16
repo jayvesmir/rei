@@ -3,6 +3,7 @@
 #include <chrono>
 #include <concepts>
 #include <cstdint>
+#include <expected>
 #include <functional>
 #include <limits>
 #include <optional>
@@ -13,6 +14,7 @@
 #include <variant>
 #include <vector>
 
+#include "rei/core/error.hpp"
 #include "rei/formats/dictionary.hpp"
 
 namespace rei::formats::toml {
@@ -122,4 +124,6 @@ namespace rei::formats::toml {
 
         auto operator==(const value& other) const -> bool;
     };
+
+    auto parse(std::string_view text) -> std::expected<toml::table, rei::error>;
 } // namespace rei::formats::toml

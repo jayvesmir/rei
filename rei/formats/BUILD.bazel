@@ -25,11 +25,18 @@ cc_library(
     name = "toml",
     include_prefix = "formats",
 
-    srcs = ["toml/value.cpp"],
+    srcs = [
+        "toml/parser.cpp",
+        "toml/value.cpp",
+    ],
+
     hdrs = ["toml.hpp"],
 
     deps = [
         ":dictionary",
+        ":error",
+        "//rei/core:error",
+        "//rei/core:utf8",
     ],
 
     cxxopts = CXXOPTS,
