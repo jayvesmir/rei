@@ -8,6 +8,7 @@ cc_test(
     srcs = [
         "args.cpp",
         "env.cpp",
+        "layers.cpp",
         "support.hpp",
     ],
 
