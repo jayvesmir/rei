@@ -8,6 +8,7 @@
 #include <format>
 #include <functional>
 #include <limits>
+#include <list>
 #include <memory>
 #include <optional>
 #include <span>
@@ -70,10 +71,13 @@ namespace rei::config {
         std::string m_env_prefix;
         std::function<auto(const rei::error&)->void> m_on_warning;
         std::vector<detail::entry> m_entries;
+        std::list<config::command> m_subcommands;
 
         auto _add(std::string_view key, std::unique_ptr<detail::binding> target,
                   const config::option_info& info, detail::entry_kind kind) -> void;
-        [[nodiscard]] auto _validate() const -> std::expected<void, rei::error>;
+        [[nodiscard]] auto
+        _validate(std::span<const std::reference_wrapper<const detail::entry>> inherited = {}) const
+            -> std::expected<void, rei::error>;
         [[nodiscard]] auto _builtins() const -> std::vector<detail::builtin>;
         [[nodiscard]] auto _usage() const -> std::string;
 
@@ -89,6 +93,8 @@ namespace rei::config {
         auto argument(std::string_view key, T& target, const config::option_info& info = {}) -> void {
             _add(key, std::make_unique<detail::typed_binding<T>>(target), info, detail::entry_kind::argument);
         }
+
+        auto subcommand(std::string_view name, std::string_view help = {}) -> config::command&;
 
         auto load(int argc, const char* const* argv) -> std::expected<void, rei::error>;
 

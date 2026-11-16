@@ -118,7 +118,16 @@ namespace rei::config {
         });
     }
 
-    auto command::_validate() const -> std::expected<void, rei::error> {
+    auto command::subcommand(std::string_view name, std::string_view help) -> config::command& {
+        auto& child = m_subcommands.emplace_back(name, config::command_info{.help = help});
+        child.m_env_prefix = m_env_prefix;
+
+        return child;
+    }
+
+    auto command::_validate(std::span<const std::reference_wrapper<const detail::entry>> inherited) const
+        -> std::expected<void, rei::error> {
+        std::vector<std::reference_wrapper<const detail::entry>> visible{inherited.begin(), inherited.end()};
         auto variadic = false;
         auto optional = false;
 
@@ -129,7 +138,7 @@ namespace rei::config {
             if (!is_key(entry.key)) {
                 return invalid_schema(std::format("invalid key '{}'", entry.key));
             }
-            if (std::ranges::contains(earlier, entry.key, &detail::entry::key)) {
+            if (std::ranges::contains(visible, entry.key, &detail::entry::key)) {
                 return invalid_schema(std::format("duplicate key '{}'", entry.key));
             }
 
@@ -138,14 +147,20 @@ namespace rei::config {
                     return invalid_schema(
                         std::format("environment name '{}' starts with '{}'", *entry.env_name, m_env_prefix));
                 }
-                if (std::ranges::contains(earlier, entry.env_name, &detail::entry::env_name)) {
+                if (std::ranges::contains(visible, entry.env_name, &detail::entry::env_name)) {
                     return invalid_schema(std::format("duplicate environment name '{}'", *entry.env_name));
                 }
             }
 
+            visible.emplace_back(entry);
+
             if (entry.kind == detail::entry_kind::argument) {
                 if (entry.long_name || entry.short_name) {
                     return invalid_schema(std::format("argument '{}' has an option name", entry.key));
+                }
+                if (!m_subcommands.empty()) {
+                    return invalid_schema(
+                        std::format("argument '{}' is on a command with subcommands", entry.key));
                 }
                 if (variadic) {
                     return invalid_schema(std::format("argument '{}' follows a variadic one", entry.key));
@@ -177,6 +192,18 @@ namespace rei::config {
             }
             if (std::ranges::contains(earlier, entry.short_name, &detail::entry::short_name)) {
                 return invalid_schema(std::format("duplicate option name '-{}'", name));
+            }
+        }
+
+        for (auto child = m_subcommands.begin(); child != m_subcommands.end(); child++) {
+            if (!is_segment(child->m_name)) {
+                return invalid_schema(std::format("invalid command name '{}'", child->m_name));
+            }
+            if (std::ranges::contains(m_subcommands.begin(), child, child->m_name, &command::m_name)) {
+                return invalid_schema(std::format("duplicate command '{}'", child->m_name));
+            }
+            if (auto valid = child->_validate(visible); !valid) {
+                return valid;
             }
         }
 
