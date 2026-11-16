@@ -28,6 +28,7 @@ cc_library(
     srcs = [
         "toml/detail.hpp",
         "toml/parser.cpp",
+        "toml/serializer.cpp",
         "toml/value.cpp",
     ],
 

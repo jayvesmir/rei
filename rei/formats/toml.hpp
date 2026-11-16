@@ -126,4 +126,7 @@ namespace rei::formats::toml {
     };
 
     auto parse(std::string_view text) -> std::expected<toml::table, rei::error>;
+
+    auto serialize(const toml::table& document) -> std::expected<std::string, rei::error>;
+    auto serialize(const toml::value& value) -> std::expected<std::string, rei::error>;
 } // namespace rei::formats::toml
