@@ -1,0 +1,19 @@
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//rei:copts.bzl", "CXXOPTS")
+
+cc_test(
+    name = "tests",
+    size = "small",
+
+    srcs = [
+        "args.cpp",
+        "support.hpp",
+    ],
+
+    deps = [
+        "//rei/config",
+        "@googletest//:gtest_main",
+    ],
+
+    cxxopts = CXXOPTS,
+)
