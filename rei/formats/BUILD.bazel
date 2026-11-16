@@ -1,0 +1,60 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("//rei:copts.bzl", "CXXOPTS")
+
+cc_library(
+    name = "error",
+    include_prefix = "formats",
+
+    hdrs = ["error_code.hpp"],
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "dictionary",
+    include_prefix = "formats",
+
+    hdrs = ["dictionary.hpp"],
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "toml",
+    include_prefix = "formats",
+
+    srcs = [
+        "toml/detail.hpp",
+        "toml/parser.cpp",
+        "toml/serializer.cpp",
+        "toml/value.cpp",
+    ],
+
+    hdrs = ["toml.hpp"],
+
+    deps = [
+        ":dictionary",
+        ":error",
+        "//rei/core:error",
+        "//rei/core:utf8",
+    ],
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "formats",
+    include_prefix = "formats",
+
+    deps = [
+        ":dictionary",
+        ":error",
+        ":toml",
+    ],
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:public"],
+)

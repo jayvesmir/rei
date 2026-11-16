@@ -1,4 +1,6 @@
+#include <string>
 #include <string_view>
+#include <utility>
 
 #include "gtest/gtest.h"
 
@@ -37,6 +39,45 @@ namespace rei::core::tests {
                  "\xC3(", // ASCII where a continuation belongs
              }) {
             EXPECT_FALSE(core::utf8::is_valid(text)) << testing::PrintToString(text);
+        }
+    }
+
+    TEST(utf8, valid_prefix_ends_before_the_first_ill_formed_sequence) {
+        for (const auto& [text, prefix] : {
+                 std::pair<std::string_view, std::string_view>{"", ""},
+                 {"h\xC3\xA9llo", "h\xC3\xA9llo"},
+                 {"ab\xFFzz", "ab"},
+                 {"a\xE2\x82", "a"},
+                 {"ok\xC3(", "ok"},
+                 {"\xED\xA0\x80", ""},
+                 {"\xE2\x82\xAC\xF4\x90\x80\x80", "\xE2\x82\xAC"},
+             }) {
+            EXPECT_EQ(core::utf8::valid_prefix(text), prefix) << testing::PrintToString(text);
+        }
+    }
+
+    TEST(utf8, append_encodes_scalar_values_only) {
+        for (const auto& [code_point, encoded] : {
+                 std::pair<char32_t, std::string_view>{U'A', "A"},
+                 {U'\u007F', "\x7F"},
+                 {U'\u0080', "\xC2\x80"},
+                 {U'\u07FF', "\xDF\xBF"},
+                 {U'\u0800', "\xE0\xA0\x80"},
+                 {U'\u20AC', "\xE2\x82\xAC"},
+                 {U'\uFFFF', "\xEF\xBF\xBF"},
+                 {U'\U00010000', "\xF0\x90\x80\x80"},
+                 {U'\U0010FFFF', "\xF4\x8F\xBF\xBF"},
+             }) {
+            std::string out{"<"};
+            EXPECT_TRUE(core::utf8::append(out, code_point));
+            EXPECT_EQ(out.substr(1), encoded);
+            EXPECT_TRUE(core::utf8::is_valid(out));
+        }
+
+        for (const auto code_point : {char32_t{0xD800}, char32_t{0xDFFF}, char32_t{0x110000}}) {
+            std::string out{"<"};
+            EXPECT_FALSE(core::utf8::append(out, code_point));
+            EXPECT_EQ(out, "<");
         }
     }
 } // namespace rei::core::tests
