@@ -10,6 +10,7 @@ cc_test(
         "env.cpp",
         "help.cpp",
         "layers.cpp",
+        "subcommands.cpp",
         "support.hpp",
     ],
 
