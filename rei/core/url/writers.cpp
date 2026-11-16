@@ -192,7 +192,7 @@ namespace rei::core::detail {
 
     auto record_from_path(const std::filesystem::path& path)
         -> std::expected<detail::url_record, rei::error> {
-        if (!path.is_absolute()) {
+        if (!path.has_root_directory()) {
             return std::unexpected(rei::error{core::make_error_code(core::error_code::invalid_argument),
                                               "file URLs need an absolute path"});
         }

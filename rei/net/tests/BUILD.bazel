@@ -1,4 +1,20 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//rei:copts.bzl", "CXXOPTS")
+
+cc_library(
+    name = "posix_compat",
+    strip_include_prefix = "posix_compat",
+    testonly = True,
+
+    hdrs = [
+        "posix_compat/netinet/in.h",
+        "posix_compat/netinet/tcp.h",
+        "posix_compat/sys/socket.h",
+    ],
+
+    target_compatible_with = ["@platforms//os:windows"],
+)
 
 cc_test(
     name = "tests",
@@ -24,7 +40,10 @@ cc_test(
     deps = [
         "//rei/net",
         "@googletest//:gtest_main",
-    ],
+    ] + select({
+        "@platforms//os:windows": [":posix_compat"],
+        "//conditions:default": [],
+    }),
 
-    cxxopts = ["-std=c++23"],
+    cxxopts = CXXOPTS,
 )
