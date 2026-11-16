@@ -75,7 +75,7 @@ namespace rei::config {
     } // namespace
 
     command::command(std::string_view name, const config::command_info& info)
-        : m_name(name), m_help(info.help), m_version(info.version),
+        : m_name(name), m_full_name(name), m_help(info.help), m_version(info.version),
           m_env_prefix(info.env_prefix.empty() ? std::string{} : std::format("{}__", info.env_prefix)),
           m_on_warning(info.on_warning) {}
 
@@ -120,6 +120,7 @@ namespace rei::config {
 
     auto command::subcommand(std::string_view name, std::string_view help) -> config::command& {
         auto& child = m_subcommands.emplace_back(name, config::command_info{.help = help});
+        child.m_full_name = std::format("{} {}", m_full_name, name);
         child.m_env_prefix = m_env_prefix;
 
         return child;
@@ -216,6 +217,11 @@ namespace rei::config {
         for (auto& child : m_subcommands) {
             child._deselect();
         }
+    }
+
+    auto command::_active() const -> const config::command& {
+        const auto chosen = std::ranges::find(m_subcommands, true, &command::m_selected);
+        return chosen == m_subcommands.end() ? *this : chosen->_active();
     }
 
     auto command::_active_entries() const -> std::vector<std::reference_wrapper<const detail::entry>> {

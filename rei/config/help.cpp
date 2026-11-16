@@ -202,7 +202,7 @@ namespace rei::config {
     }
 
     auto command::_usage() const -> std::string {
-        auto usage = std::format("Usage: {} [OPTIONS]", m_name);
+        auto usage = std::format("Usage: {} [OPTIONS]", m_full_name);
 
         for (const auto& entry : m_entries) {
             if (entry.kind == detail::entry_kind::argument && !entry.hidden) {
@@ -211,12 +211,24 @@ namespace rei::config {
             }
         }
 
+        if (!m_subcommands.empty()) {
+            const auto names = std::ranges::to<std::vector<std::string_view>>(
+                m_subcommands | std::views::transform(&command::m_name));
+            usage += std::format(" <{}>", detail::join(names, "|"));
+        }
+
         return usage;
     }
 
     auto command::help() const -> std::string {
+        std::vector<row> commands;
         std::vector<row> arguments;
         std::vector<row> options;
+
+        for (const auto& child : m_subcommands) {
+            commands.push_back(
+                {.label = std::format("  {}", child.m_name), .words = split_words(child.m_help)});
+        }
 
         for (const auto& entry : m_entries) {
             if (entry.hidden) {
@@ -248,6 +260,10 @@ namespace rei::config {
         text += _usage();
         text += '\n';
 
+        if (!commands.empty()) {
+            text += "\nCommands:\n";
+            write_rows(text, commands);
+        }
         if (!arguments.empty()) {
             text += "\nArguments:\n";
             write_rows(text, arguments);
@@ -261,8 +277,10 @@ namespace rei::config {
     }
 
     auto command::report(const rei::error& error) const -> int {
+        const auto& active = _active();
+
         if (error.code() == error_code::help_requested) {
-            std::print("{}", help());
+            std::print("{}", active.help());
             return 0;
         }
         if (error.code() == error_code::version_requested) {
@@ -271,9 +289,9 @@ namespace rei::config {
         }
 
         std::println(stderr, "error: {}\n\n{}",
-                     error.detail().empty() ? error.code().message() : error.detail(), _usage());
+                     error.detail().empty() ? error.code().message() : error.detail(), active._usage());
 
-        const auto builtins = _builtins();
+        const auto builtins = active._builtins();
         const auto help = std::ranges::find(builtins, error_code::help_requested, &detail::builtin::code);
 
         if (help != builtins.end()) {

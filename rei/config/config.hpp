@@ -66,6 +66,7 @@ namespace rei::config {
     class command {
       private:
         std::string m_name;
+        std::string m_full_name;
         std::string m_help;
         std::string m_version;
         std::string m_env_prefix;
@@ -80,6 +81,7 @@ namespace rei::config {
         _validate(std::span<const std::reference_wrapper<const detail::entry>> inherited = {}) const
             -> std::expected<void, rei::error>;
         auto _deselect() noexcept -> void;
+        [[nodiscard]] auto _active() const -> const config::command&;
         [[nodiscard]] auto _active_entries() const
             -> std::vector<std::reference_wrapper<const detail::entry>>;
         [[nodiscard]] auto _keys() const -> std::vector<std::string>;
