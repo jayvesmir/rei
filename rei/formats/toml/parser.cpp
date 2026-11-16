@@ -651,12 +651,13 @@ namespace rei::formats::toml {
                 return toml::value{number};
             }
 
+            [[nodiscard]] auto _invalid(std::string_view token, std::size_t start) const
+                -> std::unexpected<rei::error> {
+                return _fail(start, std::format("'{}' is not a valid value", token));
+            }
+
             auto _number(std::string_view token, std::size_t start) const
                 -> std::expected<toml::value, rei::error> {
-                const auto invalid = [&]() -> std::unexpected<rei::error> {
-                    return _fail(start, std::format("'{}' is not a valid value", token));
-                };
-
                 const auto negative = token.starts_with('-');
                 const auto body = token.substr(negative || token.starts_with('+') ? 1 : 0);
                 const auto sign = negative ? -1.0 : 1.0;
@@ -670,22 +671,22 @@ namespace rei::formats::toml {
 
                 if (body.size() != token.size() &&
                     (body.starts_with("0x") || body.starts_with("0o") || body.starts_with("0b"))) {
-                    return invalid();
+                    return _invalid(token, start);
                 }
                 if (body.starts_with("0x")) {
                     return is_run(body.substr(2), is_hex_digit)
                                ? _integer(token, body.substr(2), 16, false, start)
-                               : invalid();
+                               : _invalid(token, start);
                 }
                 if (body.starts_with("0o")) {
                     return is_run(body.substr(2), is_octal_digit)
                                ? _integer(token, body.substr(2), 8, false, start)
-                               : invalid();
+                               : _invalid(token, start);
                 }
                 if (body.starts_with("0b")) {
                     return is_run(body.substr(2), is_binary_digit)
                                ? _integer(token, body.substr(2), 2, false, start)
-                               : invalid();
+                               : _invalid(token, start);
                 }
 
                 const auto exponent_at = body.find_first_of("eE");
@@ -694,21 +695,21 @@ namespace rei::formats::toml {
                 const auto whole = mantissa.substr(0, point);
 
                 if (!is_run(whole, is_digit) || (whole.size() > 1 && whole.starts_with('0'))) {
-                    return invalid();
+                    return _invalid(token, start);
                 }
                 if (point == std::string_view::npos && exponent_at == std::string_view::npos) {
                     return _integer(token, whole, 10, negative, start);
                 }
 
                 if (point != std::string_view::npos && !is_run(mantissa.substr(point + 1), is_digit)) {
-                    return invalid();
+                    return _invalid(token, start);
                 }
                 if (exponent_at != std::string_view::npos) {
                     const auto exponent = body.substr(exponent_at + 1);
                     const auto digits =
                         exponent.substr(exponent.starts_with('+') || exponent.starts_with('-') ? 1 : 0);
                     if (!is_run(digits, is_digit)) {
-                        return invalid();
+                        return _invalid(token, start);
                     }
                 }
 
@@ -750,17 +751,18 @@ namespace rei::formats::toml {
                 return toml::value{toml::date_time{.date = *date, .time = *time, .offset = offset}};
             }
 
+            auto _scan(std::size_t start) noexcept -> std::string_view {
+                while (!_done() && is_scalar(m_text[m_at])) {
+                    m_at++;
+                }
+
+                return m_text.substr(start, m_at - start);
+            }
+
             auto _scalar() -> std::expected<toml::value, rei::error> {
                 const auto start = m_at;
-                const auto scan = [&]() -> std::string_view {
-                    while (!_done() && is_scalar(m_text[m_at])) {
-                        m_at++;
-                    }
 
-                    return m_text.substr(start, m_at - start);
-                };
-
-                auto token = scan();
+                auto token = _scan(start);
                 if (token.empty()) {
                     return _fail(start, "expected a value");
                 }
@@ -774,7 +776,7 @@ namespace rei::formats::toml {
                 if (dated && token.size() == 10 && rest.size() >= 4 && rest[0] == ' ' && is_digit(rest[1]) &&
                     is_digit(rest[2]) && rest[3] == ':') {
                     m_at++;
-                    token = scan();
+                    token = _scan(start);
                 }
 
                 if (dated) {
