@@ -72,6 +72,10 @@ level = "warn"
                                                "log.level=warn (site.toml:16)",
                                            }));
 
+        const auto unnamed = config::parse_toml("[\"\"]\nport = 2\n", "site.toml");
+        ASSERT_TRUE(unnamed) << unnamed.error();
+        EXPECT_EQ(tests::describe(*unnamed), (std::vector<std::string>{".port=2 (site.toml:2)"}));
+
         settings bound;
         std::vector<rei::error> warnings;
         config::command app{

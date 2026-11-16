@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <format>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -91,10 +92,10 @@ namespace rei::config {
                 return {};
             }
 
-            auto _table(std::string_view prefix, const toml::table& table)
+            auto _table(std::optional<std::string_view> prefix, const toml::table& table)
                 -> std::expected<void, rei::error> {
                 for (const auto& [name, value] : table) {
-                    const auto key = prefix.empty() ? name : std::format("{}.{}", prefix, name);
+                    const auto key = prefix ? std::format("{}.{}", *prefix, name) : name;
                     std::expected<void, rei::error> added;
 
                     if (const auto nested = value.as_table()) {
@@ -117,7 +118,9 @@ namespace rei::config {
             explicit flattener(std::string_view source) : m_source(source) {}
 
             auto flatten(const toml::table& document) && -> std::expected<config::layer, rei::error> {
-                return _table({}, document).transform([&] -> config::layer { return std::move(m_layer); });
+                return _table(std::nullopt, document).transform([&] -> config::layer {
+                    return std::move(m_layer);
+                });
             }
         };
     } // namespace
