@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstddef>
 #include <expected>
 #include <ranges>
 #include <span>
@@ -9,6 +10,8 @@
 
 #if defined(__APPLE__)
 #include <crt_externs.h>
+#elif defined(_WIN32)
+#include <windows.h>
 #else
 #include <unistd.h>
 #endif
@@ -48,16 +51,40 @@ namespace rei::config {
     }
 
     auto command::read_env() const -> std::expected<config::layer, rei::error> {
+        std::vector<std::string_view> environment;
+
+#if defined(_WIN32)
+        std::string block;
+
+        if (const auto wide = GetEnvironmentStringsW(); wide != nullptr) {
+            auto length = 0uz;
+            while (wide[length] != L'\0') {
+                length += std::wstring_view{wide + length}.size() + 1;
+            }
+
+            const auto units = static_cast<int>(length);
+            const auto bytes = WideCharToMultiByte(CP_UTF8, 0, wide, units, nullptr, 0, nullptr, nullptr);
+
+            block.resize(static_cast<std::size_t>(bytes));
+            WideCharToMultiByte(CP_UTF8, 0, wide, units, block.data(), bytes, nullptr, nullptr);
+
+            FreeEnvironmentStringsW(wide);
+        }
+
+        for (const auto variable : std::views::split(block, '\0')) {
+            environment.emplace_back(variable);
+        }
+#else
 #if defined(__APPLE__)
         const char* const* const variables = *_NSGetEnviron();
 #else
         const char* const* const variables = environ;
 #endif
 
-        std::vector<std::string_view> environment;
         for (auto i = 0uz; variables != nullptr && variables[i] != nullptr; i++) {
             environment.emplace_back(variables[i]);
         }
+#endif
 
         return read_env(environment);
     }
