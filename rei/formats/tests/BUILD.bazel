@@ -9,12 +9,21 @@ cc_test(
         "toml.cpp",
         "toml_parse.cpp",
         "toml_serialize.cpp",
+        "toml_test.cpp",
     ],
+
+    data = [
+        "@toml_test//:tests",
+        "@toml_test//:tests/files-toml-1.1.0",
+    ],
+
+    env = {"TOML_TEST_FILES": "$(rootpath @toml_test//:tests/files-toml-1.1.0)"},
 
     deps = [
         "//rei/core:error",
         "//rei/formats",
         "@googletest//:gtest_main",
+        "@nlohmann_json//:json",
     ],
 
     cxxopts = CXXOPTS,
