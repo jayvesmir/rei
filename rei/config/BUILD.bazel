@@ -1,0 +1,33 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("//rei:copts.bzl", "CXXOPTS")
+
+cc_library(
+    name = "config",
+    include_prefix = "config",
+
+    srcs = [
+        "args.cpp",
+        "command.cpp",
+        "env.cpp",
+        "help.cpp",
+        "toml.cpp",
+        "values.cpp",
+    ],
+
+    hdrs = [
+        "config.hpp",
+        "detail.hpp",
+        "error_code.hpp",
+    ],
+
+    deps = [
+        "//rei/core:ascii",
+        "//rei/core:error",
+        "//rei/core:utf8",
+        "//rei/formats:toml",
+        "@magic_enum//:magic_enum",
+    ],
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,3 @@
+[http]
+port = 9000
+index_files = ["home.html"]

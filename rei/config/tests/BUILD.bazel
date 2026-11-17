@@ -1,0 +1,41 @@
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//rei:copts.bzl", "CXXOPTS")
+
+cc_test(
+    name = "tests",
+    size = "small",
+
+    srcs = [
+        "args.cpp",
+        "env.cpp",
+        "help.cpp",
+        "layers.cpp",
+        "subcommands.cpp",
+        "support.hpp",
+        "toml.cpp",
+    ],
+
+    data = [
+        "override.toml",
+        "site.toml",
+    ],
+
+    deps = [
+        "//rei/config",
+        "//rei/core:error",
+        "//rei/formats:error",
+        "@googletest//:gtest_main",
+    ],
+
+    env = {
+        "REI_CONFIG_TESTS__HTTP__HOST": "::1",
+        "REI_CONFIG_TESTS__HTTP__INDEX_FILES": "a.html,b.html",
+        "REI_CONFIG_TESTS__AUTH__TOKEN": "secret",
+        "REI_CONFIG_TESTS_PORT": "lots",
+        "REI_CONFIG_FILES__CONFIG": "$(rootpath site.toml)",
+        "REI_CONFIG_FILES__HTTP__HOST": "::1",
+        "REI_CONFIG_MISSING__CONFIG": "missing.toml",
+    },
+
+    cxxopts = CXXOPTS,
+)
