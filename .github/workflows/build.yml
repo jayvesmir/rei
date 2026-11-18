@@ -24,6 +24,8 @@ jobs:
           # gcc on macOS is just Apple Clang
           - os: macos
             compiler: gcc
+          - os: macos
+            arch: x64
         include:
           - { os: linux, arch: x64, runner: ubuntu-26.04 }
           - { os: linux, arch: arm64, runner: ubuntu-26.04-arm }
