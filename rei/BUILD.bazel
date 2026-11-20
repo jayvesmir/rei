@@ -9,6 +9,7 @@ cc_library(
         "//rei/core",
         "//rei/formats",
         "//rei/net",
+        "//rei/crypto",
     ],
 
     visibility = ["//visibility:public"]
