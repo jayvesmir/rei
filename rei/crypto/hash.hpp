@@ -87,7 +87,7 @@ namespace rei::crypto {
     template <crypto::hash_function Hash>
         requires crypto::fixed_size_hash_function<Hash>
     auto hash(std::span<const std::byte> data)
-        -> std::expected<crypto::digest<Hash, *crypto::digest_size(Hash)>, rei::error> {
-        return crypto::hash<Hash, *crypto::digest_size(Hash)>(data);
+        -> std::expected<crypto::digest<Hash, crypto::digest_size(Hash).value()>, rei::error> {
+        return crypto::hash<Hash, crypto::digest_size(Hash).value()>(data);
     }
 } // namespace rei::crypto
