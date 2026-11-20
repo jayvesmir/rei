@@ -1,0 +1,35 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("//rei:copts.bzl", "CXXOPTS")
+
+cc_library(
+    name = "hash",
+    include_prefix = "crypto",
+
+    srcs = [
+        "hash/hash.cpp",
+    ],
+
+    hdrs = [
+        "hash.hpp",
+    ],
+
+    deps = [
+        "//rei/core:error",
+        "@aws-lc//:crypto"
+    ],
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "crypto",
+    include_prefix = "crypto",
+
+    deps = [
+        ":hash",
+    ],
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:public"],
+)
