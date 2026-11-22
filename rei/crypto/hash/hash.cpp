@@ -81,5 +81,7 @@ namespace rei::crypto {
             BLAKE2B256(input(data), data.size(), output(out));
             return {};
         }
+
+        std::unreachable();
     }
 } // namespace rei::crypto
