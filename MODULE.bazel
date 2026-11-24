@@ -46,16 +46,7 @@ http_archive(
     url = "https://github.com/vitaut/zmij/archive/refs/tags/v1.2.tar.gz",
     sha256 = "13e11c9309fab358d5b6f656050e4f3efa1d20ecf15958ae9055382d07b0268f",
     strip_prefix = "zmij-1.2",
-    build_file_content = """
-load("@rules_cc//cc:cc_library.bzl", "cc_library")
-
-cc_library(
-    name = "zmij",
-    srcs = ["zmij.cc"],
-    hdrs = ["zmij.h"],
-    visibility = ["//visibility:public"],
-)
-""",
+    build_file = "//third_party:zmij.bzl"
 )
 
 # Conformance cases for formats::toml.
@@ -64,14 +55,16 @@ http_archive(
     url = "https://github.com/toml-lang/toml-test/archive/refs/tags/v2.2.0.tar.gz",
     sha256 = "fdab2779b3902eb08030f389a5d53e95c5b49404149ac6f2eda5227a5363c232",
     strip_prefix = "toml-test-2.2.0",
-    build_file_content = """
-filegroup(
-    name = "tests",
-    srcs = glob(["tests/**"]),
-    visibility = ["//visibility:public"],
+    build_file = "//third_party:toml_tests.bzl",
+    dev_dependency = True,
 )
 
-exports_files(["tests/files-toml-1.1.0"])
-""",
+# Conformance cases for formats::json.
+http_archive(
+    name = "json_test",
+    url = "https://github.com/nst/JSONTestSuite/archive/1ef36fa01286573e846ac449e8683f8833c5b26a.tar.gz",
+    sha256 = "32ab2fb37cc26679dbd9164dbb7053bcef10134643d53cb0cef45de7680dcdcc",
+    strip_prefix = "JSONTestSuite-1ef36fa01286573e846ac449e8683f8833c5b26a/test_parsing",
+    build_file = "//third_party:json_tests.bzl",
     dev_dependency = True,
 )
