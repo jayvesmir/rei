@@ -12,6 +12,22 @@ cc_library(
     visibility = ["//visibility:public"],
 )
 
+cc_library(
+    name = "vk_allocator",
+
+    srcs = ["vk/detail/allocator.cpp"],
+
+    deps = ["@vulkan_memory_allocator"],
+
+    copts = select({
+        "@platforms//os:windows": ["/w"],
+        "//conditions:default": ["-w"],
+    }),
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:private"],
+)
+
 vk_vocabulary_headers(
     name = "vk_vocabulary",
 
