@@ -248,12 +248,17 @@ namespace rei::formats::json {
 
                 while (true) {
                     if (level.next == level.last) {
-                        m_depth--;
-                        if (m_depth == 0) {
+                        if (m_depth == 1) {
+                            m_depth = 0;
                             into--;
                             break;
                         }
+                        if (into == limit) [[unlikely]] {
+                            m_frames[m_depth - 1] = level;
+                            break;
+                        }
 
+                        m_depth--;
                         into[-1] = level.closer;
                         into[0] = ',';
                         into++;

@@ -1,7 +1,9 @@
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "gtest/gtest.h"
 
@@ -58,6 +60,23 @@ namespace rei::formats::tests {
         const auto large = json::serialize(wide);
         ASSERT_TRUE(large) << large.error();
         EXPECT_EQ(json::parse(*large), json::value{wide});
+    }
+
+    TEST(json_serialize, closes_deep_nesting_within_its_buffer) {
+        for (auto depth : {100uz, 128uz, 300uz, 1000uz, 2000uz}) {
+            json::value nested = 0;
+            for (auto i = 0uz; i < depth; i++) {
+                nested = json::array{std::move(nested)};
+            }
+            EXPECT_EQ(json::serialize(nested), std::string(depth, '[') + "0" + std::string(depth, ']'));
+
+            auto edited =
+                json::parse(std::string(depth, '[') + std::string(depth, ']'), {.max_depth = depth});
+            ASSERT_TRUE(edited) << edited.error();
+            edited->edit_array()->get().push_back(json::object{{"added", nested}});
+            EXPECT_EQ(json::serialize(*edited), std::string(depth, '[') + std::string(depth - 1, ']') +
+                                                    R"(,{"added":)" + *json::serialize(nested) + "}]");
+        }
     }
 
     TEST(json_serialize, refuses_what_json_cannot_hold) {
