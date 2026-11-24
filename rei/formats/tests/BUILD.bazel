@@ -7,6 +7,7 @@ cc_test(
 
     srcs = [
         "json.cpp",
+        "json_parse.cpp",
         "toml.cpp",
         "toml_parse.cpp",
         "toml_serialize.cpp",
