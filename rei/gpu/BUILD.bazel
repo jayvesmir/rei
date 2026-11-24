@@ -1,0 +1,12 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("//rei:copts.bzl", "CXXOPTS")
+
+cc_library(
+    name = "vk_error",
+    include_prefix = "gpu",
+
+    hdrs = ["vk/error_code.hpp"],
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:public"],
+)
