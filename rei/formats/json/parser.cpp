@@ -27,6 +27,9 @@ namespace rei::formats::json {
         constexpr auto slack = 32uz;
         constexpr auto longest_integer = 19;
         constexpr auto short_block = 4uz;
+        constexpr auto remembered_keys = 512uz;
+        constexpr auto worth_guessing = 1024uz;
+        constexpr auto longest_guess = (simd::width * 2) - 1;
         constexpr auto not_hex = 0x10000U;
 
         constexpr auto escape_table() noexcept -> std::array<char, 256> {
@@ -146,6 +149,9 @@ namespace rei::formats::json {
             std::size_t m_frame{};
             std::size_t m_depth{};
             std::size_t m_step{};
+            std::size_t m_history{};
+            bool m_guessing{};
+            std::array<std::uint8_t, remembered_keys> m_lengths;
 
             std::size_t m_failed_at{};
             std::string m_reason;
@@ -434,6 +440,46 @@ namespace rei::formats::json {
                 return _rest_of_string(cursor + 1, m_bytes, simd::probe_text(cursor + 1, m_bytes), made);
             }
 
+            REI_JSON_INLINE auto _remember(std::size_t length) noexcept -> void {
+                m_history = ((m_history << 4) ^ length) % remembered_keys;
+            }
+
+            [[nodiscard]] REI_JSON_INLINE auto _name(const char* cursor, detail::node& made) -> const char* {
+                if (!m_guessing) {
+                    return _string(cursor, made);
+                }
+
+                const auto* from = cursor + 1;
+                auto* into = m_bytes;
+                const auto guess = std::size_t{m_lengths[m_history]};
+                const auto first = simd::probe_text(from, into);
+
+                auto found = first;
+                auto within = guess;
+                auto clear = true;
+                if (guess >= simd::width) {
+                    clear = first.plain() == simd::width;
+                    found = simd::probe_text(from + simd::width, into + simd::width);
+                    within = guess - simd::width;
+                }
+
+                if (clear && found.plain_until(within) && from[guess] == '"') [[likely]] {
+                    made = {.meta = detail::tag(kind::string, 0, guess), .text = into};
+                    m_bytes = into + guess;
+                    _remember(guess);
+                    return from + guess + 1;
+                }
+
+                const auto* end = _rest_of_string(from, into, first, made);
+                if (end != nullptr) {
+                    const auto length = std::min(detail::size_of(made), longest_guess);
+                    m_lengths[m_history] = static_cast<std::uint8_t>(length);
+                    _remember(length);
+                }
+
+                return end;
+            }
+
             [[nodiscard]] REI_JSON_OUTLINE auto _long_number(const char* cursor, detail::node& made) -> const
                 char* {
                 const auto* last = m_stop;
@@ -691,7 +737,7 @@ namespace rei::formats::json {
                     return _fail(cursor, "expected a member name");
                 }
 
-                cursor = _string(cursor, _slot());
+                cursor = _name(cursor, _slot());
                 if (cursor == nullptr) {
                     return nullptr;
                 }
@@ -759,10 +805,13 @@ namespace rei::formats::json {
 
           public:
             parser(std::string_view text, const json::parse_options& options)
-                : m_text(text), m_max_depth(options.max_depth) {
+                : m_text(text), m_max_depth(options.max_depth), m_guessing(text.size() >= worth_guessing) {
                 m_base = m_inline.data();
                 m_top = m_base;
                 m_ceiling = m_base + m_inline.size();
+                if (m_guessing) {
+                    m_lengths.fill(0);
+                }
 
                 const auto length = std::min(text.size(), padding);
                 m_tail.fill('\0');

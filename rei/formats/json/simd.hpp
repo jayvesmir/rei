@@ -31,6 +31,10 @@ namespace rei::formats::json::detail::simd {
         [[nodiscard]] auto plain() const noexcept -> std::size_t {
             return static_cast<std::size_t>(std::countr_zero(quotes | stops | (1U << width)));
         }
+
+        [[nodiscard]] auto plain_until(std::size_t count) const noexcept -> bool {
+            return ((quotes | stops) & ((1U << count) - 1)) == 0;
+        }
     };
 
     HWY_ATTR inline auto load_block(const char* from) noexcept -> portable::VFromD<lanes> {
