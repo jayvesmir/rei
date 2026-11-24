@@ -9,6 +9,7 @@ cc_test(
         "json.cpp",
         "json_parse.cpp",
         "json_serialize.cpp",
+        "json_test.cpp",
         "toml.cpp",
         "toml_parse.cpp",
         "toml_serialize.cpp",
@@ -16,11 +17,16 @@ cc_test(
     ],
 
     data = [
+        "@json_test//:tests",
+        "@json_test//:y_array_empty.json",
         "@toml_test//:tests",
         "@toml_test//:tests/files-toml-1.1.0",
     ],
 
-    env = {"TOML_TEST_FILES": "$(rootpath @toml_test//:tests/files-toml-1.1.0)"},
+    env = {
+        "JSON_TEST_SUITE": "$(rootpath @json_test//:y_array_empty.json)",
+        "TOML_TEST_FILES": "$(rootpath @toml_test//:tests/files-toml-1.1.0)",
+    },
 
     deps = [
         "//rei/core:error",
