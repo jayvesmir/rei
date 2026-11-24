@@ -46,12 +46,28 @@ cc_library(
 )
 
 cc_library(
+    name = "json",
+    include_prefix = "formats",
+
+    srcs = [
+        "json/detail.hpp",
+        "json/value.cpp",
+    ],
+
+    hdrs = ["json.hpp"],
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
     name = "formats",
     include_prefix = "formats",
 
     deps = [
         ":dictionary",
         ":error",
+        ":json",
         ":toml",
     ],
 
