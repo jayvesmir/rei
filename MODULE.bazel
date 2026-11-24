@@ -7,6 +7,7 @@ bazel_dep(name = "rules_cc", version = "0.2.22")
 bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "magic_enum", version = "0.9.8")
 bazel_dep(name = "aws-lc", version = "5.1.0.bcr.3")
+bazel_dep(name = "highway", version = "1.4.0.bcr.1")
 
 bazel_dep(name = "googletest", version = "1.18.0", dev_dependency = True)
 bazel_dep(name = "nlohmann_json", version = "3.12.0.bcr.2", dev_dependency = True)
@@ -38,6 +39,24 @@ http_file(
 )
 
 http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+# float serialization for formats::json.
+http_archive(
+    name = "zmij",
+    url = "https://github.com/vitaut/zmij/archive/refs/tags/v1.2.tar.gz",
+    sha256 = "13e11c9309fab358d5b6f656050e4f3efa1d20ecf15958ae9055382d07b0268f",
+    strip_prefix = "zmij-1.2",
+    build_file_content = """
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+cc_library(
+    name = "zmij",
+    srcs = ["zmij.cc"],
+    hdrs = ["zmij.h"],
+    visibility = ["//visibility:public"],
+)
+""",
+)
 
 # Conformance cases for formats::toml.
 http_archive(

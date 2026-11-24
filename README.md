@@ -26,7 +26,9 @@ For a complete list of packages please look inside the [rei](rei/) directory.
 
 ## Dependencies
 - [magic_enum](https://github.com/Neargye/magic_enum)
+- [zmij](https://github.com/vitaut/zmij)
 - [aws-lc](https://github.com/aws/aws-lc)
+- [highway](https://github.com/google/highway)
 
 ## Documentation
 
