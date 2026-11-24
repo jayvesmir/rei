@@ -10,6 +10,7 @@
 #include <new>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -441,4 +442,6 @@ namespace rei::formats::json {
 
     auto parse(std::string_view text, const json::parse_options& options = {})
         -> std::expected<json::value, rei::error>;
+
+    auto serialize(const json::value& value) -> std::expected<std::string, rei::error>;
 } // namespace rei::formats::json

@@ -54,6 +54,7 @@ cc_library(
         "json/detail.hpp",
         "json/parser.cpp",
         "json/powers.hpp",
+        "json/serializer.cpp",
         "json/simd.hpp",
         "json/value.cpp",
     ],
