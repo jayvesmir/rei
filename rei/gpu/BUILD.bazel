@@ -57,6 +57,7 @@ cc_library(
     hdrs = [
         "vk/device.hpp",
         "vk/instance.hpp",
+        "vk/raw.hpp",
         "vk/vocabulary.hpp",
 
         ":vk_vocabulary",
