@@ -50,8 +50,10 @@ cc_library(
     include_prefix = "formats",
 
     srcs = [
+        "json/decimal.hpp",
         "json/detail.hpp",
         "json/parser.cpp",
+        "json/powers.hpp",
         "json/simd.hpp",
         "json/value.cpp",
     ],

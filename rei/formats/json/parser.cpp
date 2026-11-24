@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -15,6 +16,7 @@
 #include "rei/core/error.hpp"
 #include "rei/formats/error_code.hpp"
 #include "rei/formats/json.hpp"
+#include "rei/formats/json/decimal.hpp"
 #include "rei/formats/json/detail.hpp"
 #include "rei/formats/json/simd.hpp"
 
@@ -26,7 +28,9 @@ namespace rei::formats::json {
         constexpr auto padding = 128uz;
         constexpr auto slack = 32uz;
         constexpr auto longest_integer = 19;
+        constexpr auto longest_exponent = 5;
         constexpr auto short_block = 4uz;
+        constexpr auto scalar_digits = 3;
         constexpr auto remembered_keys = 512uz;
         constexpr auto worth_guessing = 1024uz;
         constexpr auto longest_guess = (simd::width * 2) - 1;
@@ -541,6 +545,19 @@ namespace rei::formats::json {
                 return end;
             }
 
+            REI_JSON_INLINE static auto _absorb(std::uint64_t& digits, const char*& end) noexcept
+                -> std::int32_t {
+                const auto word = detail::load_eight(end);
+                const auto count = detail::digit_count(word);
+                if (count != 0) {
+                    digits = (digits * detail::small_powers_of_ten[static_cast<std::size_t>(count)]) +
+                             detail::leading_digits(word, count);
+                    end += count;
+                }
+
+                return count;
+            }
+
             [[nodiscard]] REI_JSON_OUTLINE auto _number(const char* cursor, detail::node& made) -> const
                 char* {
                 const auto negative = *cursor == '-';
@@ -557,31 +574,80 @@ namespace rei::formats::json {
                         return _fail(integral, "a number can't start with a zero");
                     }
 
-                    while (is_digit(*end) && end - integral < longest_integer) {
+                    while (is_digit(*end) && end - integral < scalar_digits) {
                         digits = (digits * 10) + digit_of(*end);
                         end++;
                     }
 
-                    if (is_digit(*end)) {
+                    if (is_digit(*end) && _absorb(digits, end) == 8 && _absorb(digits, end) == 8 &&
+                        is_digit(*end)) {
                         return _long_number(cursor, made);
                     }
                 }
 
-                if (*end == '.' || is_exponent(*end)) {
-                    return _long_number(cursor, made);
+                if (*end != '.' && !is_exponent(*end)) {
+                    if (!negative) {
+                        made = detail::integer_node(digits);
+                    } else if (digits <= (1ULL << 63)) {
+                        made = {.meta = detail::tag(kind::integer), .natural = 0 - digits};
+                    } else {
+                        made = {
+                            .meta = detail::tag(kind::floating),
+                            .floating = -static_cast<double>(digits),
+                        };
+                    }
+
+                    return end;
                 }
 
-                if (!negative) {
-                    made = detail::integer_node(digits);
-                } else if (digits <= (1ULL << 63)) {
-                    made = {.meta = detail::tag(kind::integer), .natural = 0 - digits};
-                } else {
-                    made = {
-                        .meta = detail::tag(kind::floating),
-                        .floating = -static_cast<double>(digits),
-                    };
+                std::int64_t exponent = 0;
+                if (*end == '.') {
+                    const auto* fraction = end + 1;
+                    auto budget =
+                        longest_integer - (digits == 0 ? 0 : static_cast<std::int32_t>(end - integral));
+                    end = fraction;
+
+                    while (budget >= 8 && detail::is_eight_digits(detail::load_eight(end))) {
+                        digits = (digits * 100'000'000) + detail::eight_digits(detail::load_eight(end));
+                        end += 8;
+                        budget -= 8;
+                    }
+
+                    if (_absorb(digits, end) > budget) {
+                        return _long_number(cursor, made);
+                    }
+                    if (end == fraction) {
+                        return _fail(fraction, "expected a digit after the decimal point");
+                    }
+
+                    exponent = fraction - end;
                 }
 
+                if (is_exponent(*end)) {
+                    const auto* power = end + 1;
+                    const auto minus = *power == '-';
+                    power += minus || *power == '+' ? 1 : 0;
+
+                    std::uint64_t written = 0;
+                    end = power;
+                    const auto count = _absorb(written, end);
+                    if (count == 0) {
+                        return _fail(power, "expected a digit in the exponent");
+                    }
+                    if (count > longest_exponent) {
+                        return _long_number(cursor, made);
+                    }
+
+                    exponent +=
+                        minus ? -static_cast<std::int64_t>(written) : static_cast<std::int64_t>(written);
+                }
+
+                const auto number = detail::scale(digits, exponent);
+                if (std::isinf(number)) {
+                    return _fail_range(cursor, end);
+                }
+
+                made = {.meta = detail::tag(kind::floating), .floating = negative ? -number : number};
                 return end;
             }
 
