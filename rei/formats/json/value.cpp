@@ -284,7 +284,9 @@ namespace rei::formats::json {
                     return held;
                 }
 
-                return text_node(text_of(held));
+                auto made = text_node(text_of(held));
+                made.meta |= held.meta & plain_bit;
+                return made;
             }
 
             return is_container(held) ? clone_tree(held) : held;

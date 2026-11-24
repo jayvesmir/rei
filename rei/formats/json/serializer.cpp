@@ -29,6 +29,7 @@ namespace rei::formats::json {
         constexpr auto bytes_per_slot = 14uz;
         constexpr auto longest_integer = 20uz;
         constexpr auto longest_float = 24uz;
+        constexpr auto bulk_text = 64uz;
         constexpr auto near_frames = 32uz;
         constexpr std::string_view hex_digits = "0123456789ABCDEF";
 
@@ -54,7 +55,12 @@ namespace rei::formats::json {
         };
 
         auto bound(const detail::node& held) noexcept -> std::size_t {
-            return detail::kind_of(held) == kind::string ? detail::text_of(held).size() * 6 : 0;
+            if (detail::kind_of(held) != kind::string) {
+                return 0;
+            }
+
+            const auto size = detail::text_of(held).size();
+            return (held.meta & detail::plain_bit) != 0 ? size : size * 6;
         }
 
         auto escaped(char* into, std::string_view text) noexcept -> char* {
@@ -103,7 +109,7 @@ namespace rei::formats::json {
             }
         }
 
-        auto quoted(char* into, const detail::node& held) noexcept -> char* {
+        REI_JSON_OUTLINE auto checked(char* into, const detail::node& held) noexcept -> char* {
             std::array<char, sizeof(detail::node) + simd::width> local{};
             auto text = detail::text_of(held);
             if ((held.meta & detail::inline_bit) != 0) {
@@ -119,6 +125,27 @@ namespace rei::formats::json {
 
             *into = '"';
             return into + 1;
+        }
+
+        REI_JSON_INLINE auto quoted(char* into, const detail::node& held) noexcept -> char* {
+            if ((held.meta & (detail::plain_bit | detail::inline_bit)) != detail::plain_bit) {
+                return checked(into, held);
+            }
+
+            const auto size = detail::size_of(held);
+            into[0] = '"';
+            into++;
+
+            if (size <= bulk_text) [[likely]] {
+                for (auto copied = 0uz; copied < size; copied += simd::width) {
+                    simd::move_block(held.text + copied, into + copied);
+                }
+            } else {
+                std::memcpy(into, held.text, size);
+            }
+
+            into[size] = '"';
+            return into + size + 1;
         }
 
         auto floating(char* into, double number) noexcept -> char* {

@@ -41,6 +41,10 @@ namespace rei::formats::json::detail::simd {
         return portable::LoadU(lanes{}, reinterpret_cast<const std::uint8_t*>(from));
     }
 
+    HWY_ATTR inline auto move_block(const char* from, char* into) noexcept -> void {
+        portable::StoreU(load_block(from), lanes{}, reinterpret_cast<std::uint8_t*>(into));
+    }
+
     HWY_ATTR inline auto same_as(portable::VFromD<lanes> block, char unit) noexcept
         -> portable::MFromD<lanes> {
         return portable::Eq(block, portable::Set(lanes{}, static_cast<std::uint8_t>(unit)));

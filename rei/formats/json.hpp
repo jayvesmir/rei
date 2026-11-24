@@ -52,6 +52,7 @@ namespace rei::formats::json {
         inline constexpr std::uint64_t owner_bit = 0x08;
         inline constexpr std::uint64_t inline_bit = 0x10;
         inline constexpr std::uint64_t unsigned_bit = 0x10;
+        inline constexpr std::uint64_t plain_bit = 0x20;
         inline constexpr std::uint64_t tag_bits = 0xFF;
         inline constexpr auto size_shift = 8;
         inline constexpr auto inline_offset = 2uz;

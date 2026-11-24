@@ -389,6 +389,8 @@ namespace rei::formats::json {
 
             [[nodiscard]] REI_JSON_OUTLINE auto _long_string(const char* from, char* into, detail::node& made)
                 -> const char* {
+                auto flags = detail::plain_bit;
+
                 while (*from != '"') {
                     if (from >= m_limit) [[unlikely]] {
                         from = _into_tail(from);
@@ -396,6 +398,7 @@ namespace rei::formats::json {
 
                     const auto unit = byte(*from);
                     if (unit == '\\') {
+                        flags = 0;
                         from = _escape(from, into);
                     } else if (unit >= 0x80) {
                         from = _multibyte(from, into);
@@ -413,7 +416,7 @@ namespace rei::formats::json {
                 }
 
                 made = {
-                    .meta = detail::tag(kind::string, 0, static_cast<std::size_t>(into - m_bytes)),
+                    .meta = detail::tag(kind::string, flags, static_cast<std::size_t>(into - m_bytes)),
                     .text = m_bytes,
                 };
                 m_bytes = into;
@@ -434,7 +437,7 @@ namespace rei::formats::json {
                 }
 
                 length += found.reach();
-                made = {.meta = detail::tag(kind::string, 0, length), .text = into};
+                made = {.meta = detail::tag(kind::string, detail::plain_bit, length), .text = into};
                 m_bytes = into + length;
                 return from + length + 1;
             }
@@ -468,7 +471,7 @@ namespace rei::formats::json {
                 }
 
                 if (clear && found.plain_until(within) && from[guess] == '"') [[likely]] {
-                    made = {.meta = detail::tag(kind::string, 0, guess), .text = into};
+                    made = {.meta = detail::tag(kind::string, detail::plain_bit, guess), .text = into};
                     m_bytes = into + guess;
                     _remember(guess);
                     return from + guess + 1;
@@ -860,7 +863,9 @@ namespace rei::formats::json {
                 }
 
                 if (detail::kind_of(root) == kind::string) {
+                    const auto plain = root.meta & detail::plain_bit;
                     root = detail::text_node(detail::text_of(root));
+                    root.meta |= plain;
                 }
                 if (m_arena != nullptr) {
                     detail::close_arena(*m_arena);
