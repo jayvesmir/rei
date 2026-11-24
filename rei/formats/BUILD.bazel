@@ -51,10 +51,16 @@ cc_library(
 
     srcs = [
         "json/detail.hpp",
+        "json/parser.cpp",
         "json/value.cpp",
     ],
 
     hdrs = ["json.hpp"],
+
+    deps = [
+        ":error",
+        "//rei/core:error",
+    ],
 
     cxxopts = CXXOPTS,
     visibility = ["//visibility:public"],

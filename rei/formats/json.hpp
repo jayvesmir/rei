@@ -4,6 +4,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <functional>
 #include <initializer_list>
 #include <new>
@@ -11,6 +12,8 @@
 #include <span>
 #include <string_view>
 #include <utility>
+
+#include "rei/core/error.hpp"
 
 namespace rei::formats::json {
     enum class kind : std::uint8_t {
@@ -26,6 +29,10 @@ namespace rei::formats::json {
     class value;
     class array;
     class object;
+
+    struct parse_options {
+        std::size_t max_depth{128};
+    };
 
     namespace detail {
         static_assert(std::endian::native == std::endian::little);
@@ -431,4 +438,7 @@ namespace rei::formats::json {
                 return child.find(next, rest...);
             });
     }
+
+    auto parse(std::string_view text, const json::parse_options& options = {})
+        -> std::expected<json::value, rei::error>;
 } // namespace rei::formats::json
