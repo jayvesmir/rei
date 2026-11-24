@@ -52,6 +52,7 @@ cc_library(
     srcs = [
         "json/detail.hpp",
         "json/parser.cpp",
+        "json/simd.hpp",
         "json/value.cpp",
     ],
 
@@ -60,6 +61,7 @@ cc_library(
     deps = [
         ":error",
         "//rei/core:error",
+        "@highway//:hwy",
     ],
 
     cxxopts = CXXOPTS,

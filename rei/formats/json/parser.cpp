@@ -16,9 +16,12 @@
 #include "rei/formats/error_code.hpp"
 #include "rei/formats/json.hpp"
 #include "rei/formats/json/detail.hpp"
+#include "rei/formats/json/simd.hpp"
 
 namespace rei::formats::json {
     namespace {
+        namespace simd = detail::simd;
+
         constexpr std::string_view byte_order_mark = "\xEF\xBB\xBF";
         constexpr auto padding = 128uz;
         constexpr auto slack = 32uz;
@@ -213,14 +216,23 @@ namespace rei::formats::json {
             }
 
             [[nodiscard]] REI_JSON_OUTLINE auto _skip_run(const char* cursor) noexcept -> const char* {
-                while (*cursor == ' ' || *cursor == '\n' || *cursor == '\r' || *cursor == '\t') {
-                    cursor++;
+                while (true) {
+                    const auto spaces = simd::leading_spaces(cursor);
+                    if (spaces == simd::width) {
+                        cursor += simd::width;
+                    } else {
+                        cursor += spaces;
+                        if (*cursor != '\n' && *cursor != '\r' && *cursor != '\t') {
+                            return cursor;
+                        }
+
+                        cursor++;
+                    }
+
                     if (cursor >= m_limit) [[unlikely]] {
                         cursor = _into_tail(cursor);
                     }
                 }
-
-                return cursor;
             }
 
             [[nodiscard]] REI_JSON_INLINE auto _skip(const char* cursor) noexcept -> const char* {
@@ -350,10 +362,8 @@ namespace rei::formats::json {
                 return from;
             }
 
-            [[nodiscard]] auto _string(const char* cursor, detail::node& made) -> const char* {
-                const auto* from = cursor + 1;
-                auto* into = m_bytes;
-
+            [[nodiscard]] REI_JSON_OUTLINE auto _long_string(const char* from, char* into, detail::node& made)
+                -> const char* {
                 while (*from != '"') {
                     if (from >= m_limit) [[unlikely]] {
                         from = _into_tail(from);
@@ -367,9 +377,9 @@ namespace rei::formats::json {
                     } else if (unit < ' ') {
                         return _fail_text(from);
                     } else {
-                        *into = *from;
-                        from++;
-                        into++;
+                        const auto run = simd::copy_plain(from, into);
+                        from += run;
+                        into += run;
                     }
 
                     if (from == nullptr) {
@@ -383,6 +393,30 @@ namespace rei::formats::json {
                 };
                 m_bytes = into;
                 return from + 1;
+            }
+
+            [[nodiscard]] REI_JSON_INLINE auto _rest_of_string(const char* from, char* into,
+                                                               simd::probe found, detail::node& made) -> const
+                char* {
+                auto length = 0uz;
+                if (!found.closes() && found.plain() == simd::width) {
+                    length = simd::width;
+                    found = simd::probe_text(from + length, into + length);
+                }
+                if (!found.closes()) [[unlikely]] {
+                    length += found.plain();
+                    return _long_string(from + length, into + length, made);
+                }
+
+                length += found.reach();
+                made = {.meta = detail::tag(kind::string, 0, length), .text = into};
+                m_bytes = into + length;
+                return from + length + 1;
+            }
+
+            [[nodiscard]] REI_JSON_INLINE auto _string(const char* cursor, detail::node& made) -> const
+                char* {
+                return _rest_of_string(cursor + 1, m_bytes, simd::probe_text(cursor + 1, m_bytes), made);
             }
 
             [[nodiscard]] REI_JSON_OUTLINE auto _long_number(const char* cursor, detail::node& made) -> const
