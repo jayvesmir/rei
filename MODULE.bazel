@@ -31,6 +31,11 @@ idna_tables(
     },
 )
 
+# Vulkan's formats and feature bits for gpu::vk.
+vk_vocabulary = use_repo_rule("//rei/gpu:vk/vocabulary.bzl", "vk_vocabulary")
+
+vk_vocabulary(name = "rei_vk_vocabulary")
+
 http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 
 http_file(
