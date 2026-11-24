@@ -55,6 +55,7 @@ cc_library(
     ],
 
     hdrs = [
+        "vk.hpp",
         "vk/device.hpp",
         "vk/instance.hpp",
         "vk/raw.hpp",
