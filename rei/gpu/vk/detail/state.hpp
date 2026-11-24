@@ -17,7 +17,10 @@
 
 #include "volk.h"
 
+#include <vk_mem_alloc.h>
+
 #include "rei/core/error.hpp"
+#include "rei/gpu/vk/device.hpp"
 #include "rei/gpu/vk/error_code.hpp"
 #include "rei/gpu/vk/instance.hpp"
 
@@ -119,6 +122,27 @@ namespace rei::gpu::vk {
         std::function<void(const vk::message&)> on_message;
 
         state() = default;
+        state(const state& other) = delete;
+        auto operator=(const state& other) -> state& = delete;
+        ~state();
+    };
+
+    struct queue::state {
+        VkQueue handle{};
+        std::uint32_t family{};
+    };
+
+    struct device::state {
+        vk::instance instance;
+        vk::physical_device physical;
+        VkPhysicalDeviceLimits limits{};
+        VkDevice handle{};
+        volk::VolkDeviceTable table{};
+        VmaAllocator allocator{};
+        std::vector<bool> features;
+        vk::queue::state queue;
+
+        state(vk::instance instance, vk::physical_device physical) noexcept;
         state(const state& other) = delete;
         auto operator=(const state& other) -> state& = delete;
         ~state();

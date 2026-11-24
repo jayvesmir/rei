@@ -47,6 +47,7 @@ cc_library(
         "vk/detail/loader.hpp",
         "vk/detail/state.hpp",
 
+        "vk/device.cpp",
         "vk/feature.cpp",
         "vk/instance.cpp",
 
@@ -54,6 +55,7 @@ cc_library(
     ],
 
     hdrs = [
+        "vk/device.hpp",
         "vk/instance.hpp",
         "vk/vocabulary.hpp",
 
@@ -61,10 +63,12 @@ cc_library(
     ],
 
     deps = [
+        ":vk_allocator",
         ":vk_error",
         "//rei/core:error",
         "@volk",
         "@vulkan_headers",
+        "@vulkan_memory_allocator",
     ],
 
     linkopts = select({
