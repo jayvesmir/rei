@@ -27,6 +27,8 @@ cc_library(
 
     srcs = [
         "vk/detail/features.hpp",
+        "vk/detail/loader.cpp",
+        "vk/detail/loader.hpp",
 
         "vk/feature.cpp",
 
@@ -40,8 +42,14 @@ cc_library(
     ],
 
     deps = [
+        "@volk",
         "@vulkan_headers",
     ],
+
+    linkopts = select({
+        "@platforms//os:linux": ["-ldl"],
+        "//conditions:default": [],
+    }),
 
     cxxopts = CXXOPTS,
     visibility = ["//visibility:public"]
