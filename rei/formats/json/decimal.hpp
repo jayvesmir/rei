@@ -138,7 +138,38 @@ namespace rei::formats::json::detail {
         return table;
     }
 
+    constexpr auto pairs_of_digits() noexcept -> std::array<char, 200> {
+        std::array<char, 200> table{};
+        for (auto pair = 0uz; pair < 100; pair++) {
+            table[pair * 2] = static_cast<char>('0' + (pair / 10));
+            table[(pair * 2) + 1] = static_cast<char>('0' + (pair % 10));
+        }
+
+        return table;
+    }
+
     inline constexpr auto small_powers_of_ten = powers_of_ten();
+    inline constexpr auto digit_pairs = pairs_of_digits();
+
+    inline auto write_natural(char* into, std::uint64_t value) noexcept -> char* {
+        const auto guess = static_cast<std::size_t>((std::bit_width(value | 1) * 1233) >> 12);
+        auto* const end = into + guess + ((value | 1) >= small_powers_of_ten[guess] ? 1 : 0);
+        auto* cursor = end;
+
+        while (value >= 100) {
+            cursor -= 2;
+            std::memcpy(cursor, &digit_pairs[(value % 100) * 2], 2);
+            value /= 100;
+        }
+
+        if (value >= 10) {
+            std::memcpy(cursor - 2, &digit_pairs[value * 2], 2);
+        } else {
+            cursor[-1] = static_cast<char>('0' + value);
+        }
+
+        return end;
+    }
 
     constexpr auto digit_count(std::uint64_t word) noexcept -> std::int32_t {
         const auto others = ((word + 0x4646464646464646) | (word - 0x3030303030303030)) & 0x8080808080808080;

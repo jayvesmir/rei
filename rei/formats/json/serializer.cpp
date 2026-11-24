@@ -17,6 +17,7 @@
 #include "rei/core/error.hpp"
 #include "rei/formats/error_code.hpp"
 #include "rei/formats/json.hpp"
+#include "rei/formats/json/decimal.hpp"
 #include "rei/formats/json/detail.hpp"
 #include "rei/formats/json/simd.hpp"
 
@@ -27,7 +28,6 @@ namespace rei::formats::json {
         constexpr auto headroom = 96uz;
         constexpr auto smallest_estimate = 256uz;
         constexpr auto bytes_per_slot = 14uz;
-        constexpr auto longest_integer = 20uz;
         constexpr auto longest_float = 24uz;
         constexpr auto bulk_text = 64uz;
         constexpr auto near_frames = 32uz;
@@ -223,9 +223,12 @@ namespace rei::formats::json {
                 case kind::string:
                     return quoted(into, held);
                 case kind::integer:
-                    return (held.meta & detail::unsigned_bit) != 0
-                               ? std::to_chars(into, into + longest_integer, held.natural).ptr
-                               : std::to_chars(into, into + longest_integer, held.integer).ptr;
+                    if ((held.meta & detail::unsigned_bit) == 0 && held.integer < 0) {
+                        into[0] = '-';
+                        return detail::write_natural(into + 1, 0 - held.natural);
+                    }
+
+                    return detail::write_natural(into, held.natural);
                 case kind::floating:
                     return std::isfinite(held.floating) ? floating(into, held.floating) : nullptr;
                 case kind::boolean:
