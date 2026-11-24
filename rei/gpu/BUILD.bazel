@@ -20,3 +20,29 @@ vk_vocabulary_headers(
         "@rei_vk_vocabulary//:format.hpp",
     ],
 )
+
+cc_library(
+    name = "vk",
+    include_prefix = "gpu",
+
+    srcs = [
+        "vk/detail/features.hpp",
+
+        "vk/feature.cpp",
+
+        "@rei_vk_vocabulary//:feature_table.cpp",
+    ],
+
+    hdrs = [
+        "vk/vocabulary.hpp",
+
+        ":vk_vocabulary",
+    ],
+
+    deps = [
+        "@vulkan_headers",
+    ],
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:public"]
+)
