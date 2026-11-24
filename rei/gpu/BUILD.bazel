@@ -1,5 +1,6 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("//rei:copts.bzl", "CXXOPTS")
+load("//rei/gpu:vk/vocabulary.bzl", "vk_vocabulary_headers")
 
 cc_library(
     name = "vk_error",
@@ -9,4 +10,13 @@ cc_library(
 
     cxxopts = CXXOPTS,
     visibility = ["//visibility:public"],
+)
+
+vk_vocabulary_headers(
+    name = "vk_vocabulary",
+
+    srcs = [
+        "@rei_vk_vocabulary//:feature.hpp",
+        "@rei_vk_vocabulary//:format.hpp",
+    ],
 )
