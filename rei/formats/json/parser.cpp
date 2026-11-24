@@ -145,6 +145,7 @@ namespace rei::formats::json {
             detail::node* m_ceiling{};
             std::size_t m_frame{};
             std::size_t m_depth{};
+            std::size_t m_step{};
 
             std::size_t m_failed_at{};
             std::string m_reason;
@@ -215,7 +216,10 @@ namespace rei::formats::json {
                 return m_tail.data() + passed;
             }
 
-            [[nodiscard]] REI_JSON_OUTLINE auto _skip_run(const char* cursor) noexcept -> const char* {
+            [[nodiscard]] REI_JSON_OUTLINE auto _skip_run(const char* cursor, std::size_t level) noexcept
+                -> const char* {
+                const auto* line = cursor;
+
                 while (true) {
                     const auto spaces = simd::leading_spaces(cursor);
                     if (spaces == simd::width) {
@@ -223,19 +227,23 @@ namespace rei::formats::json {
                     } else {
                         cursor += spaces;
                         if (*cursor != '\n' && *cursor != '\r' && *cursor != '\t') {
+                            m_step = level == 0 ? m_step : static_cast<std::size_t>(cursor - line) / level;
                             return cursor;
                         }
 
                         cursor++;
+                        line = cursor;
                     }
 
                     if (cursor >= m_limit) [[unlikely]] {
                         cursor = _into_tail(cursor);
+                        line = cursor;
                     }
                 }
             }
 
-            [[nodiscard]] REI_JSON_INLINE auto _skip(const char* cursor) noexcept -> const char* {
+            [[nodiscard]] REI_JSON_INLINE auto _skip(const char* cursor, std::size_t level) noexcept -> const
+                char* {
                 if (cursor >= m_limit) [[unlikely]] {
                     cursor = _into_tail(cursor);
                 }
@@ -247,7 +255,14 @@ namespace rei::formats::json {
                     return cursor + 1;
                 }
 
-                return _skip_run(cursor);
+                const auto indent = std::min(level * m_step, simd::longest_indent);
+                const auto* indented = cursor + 1 + indent;
+                if (*cursor == '\n' && simd::is_indent(cursor + 1, indent) && byte(*indented) > ' ')
+                    [[likely]] {
+                    return indented;
+                }
+
+                return _skip_run(cursor, level);
             }
 
             REI_JSON_OUTLINE auto _spill() -> void {
@@ -628,7 +643,7 @@ namespace rei::formats::json {
                     return nullptr;
                 }
 
-                cursor = _skip(cursor + 1);
+                cursor = _skip(cursor + 1, m_depth);
                 if (*cursor == ']') {
                     cursor++;
                     goto close;
@@ -648,9 +663,9 @@ namespace rei::formats::json {
                 }
 
             array_next:
-                cursor = _skip(cursor);
+                cursor = _skip(cursor, m_depth - 1);
                 if (*cursor == ',') {
-                    cursor = _skip(cursor + 1);
+                    cursor = _skip(cursor + 1, m_depth);
                     goto array_item;
                 }
                 if (*cursor == ']') {
@@ -665,7 +680,7 @@ namespace rei::formats::json {
                     return nullptr;
                 }
 
-                cursor = _skip(cursor + 1);
+                cursor = _skip(cursor + 1, m_depth);
                 if (*cursor == '}') {
                     cursor++;
                     goto close;
@@ -681,12 +696,12 @@ namespace rei::formats::json {
                     return nullptr;
                 }
 
-                cursor = _skip(cursor);
+                cursor = _skip(cursor, m_depth);
                 if (*cursor != ':') {
                     return _fail(cursor, "expected ':' after a member name");
                 }
 
-                cursor = _skip(cursor + 1);
+                cursor = _skip(cursor + 1, m_depth);
                 if (*cursor == '[') {
                     goto open_array;
                 }
@@ -700,9 +715,9 @@ namespace rei::formats::json {
                 }
 
             object_next:
-                cursor = _skip(cursor);
+                cursor = _skip(cursor, m_depth - 1);
                 if (*cursor == ',') {
-                    cursor = _skip(cursor + 1);
+                    cursor = _skip(cursor + 1, m_depth);
                     goto object_name;
                 }
                 if (*cursor == '}') {
@@ -774,14 +789,14 @@ namespace rei::formats::json {
             }
 
             [[nodiscard]] auto run() -> std::expected<json::value, rei::error> {
-                const auto* cursor = _skip(m_segment + (m_text.starts_with(byte_order_mark) ? 3 : 0));
+                const auto* cursor = _skip(m_segment + (m_text.starts_with(byte_order_mark) ? 3 : 0), 0);
                 if (*cursor == '[' || *cursor == '{' || *cursor == '"') {
                     _begin(cursor);
                 }
 
                 cursor = _document(cursor);
                 if (cursor != nullptr) {
-                    cursor = _skip(cursor);
+                    cursor = _skip(cursor, 0);
                     if (cursor != m_stop || m_segment != m_tail.data()) {
                         cursor = _fail(cursor, "unexpected text after the document");
                     }

@@ -12,6 +12,7 @@ namespace rei::formats::json::detail::simd {
     namespace portable = hwy::HWY_NAMESPACE;
 
     inline constexpr auto width = 16uz;
+    inline constexpr auto longest_indent = (width * 2) - 1;
 
     using lanes = portable::FixedTag<std::uint8_t, width>;
 
@@ -69,6 +70,15 @@ namespace rei::formats::json::detail::simd {
 
     HWY_ATTR inline auto leading_spaces(const char* from) noexcept -> std::size_t {
         return static_cast<std::size_t>(std::countr_one(static_cast<std::uint16_t>(space_bits(from))));
+    }
+
+    HWY_ATTR inline auto is_indent(const char* from, std::size_t count) noexcept -> bool {
+        auto spaces = space_bits(from);
+        if (count >= width) {
+            spaces |= space_bits(from + width) << width;
+        }
+
+        return (spaces & ((std::uint64_t{2} << count) - 1)) == (std::uint64_t{1} << count) - 1;
     }
 } // namespace rei::formats::json::detail::simd
 
