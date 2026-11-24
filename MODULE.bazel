@@ -3,11 +3,13 @@ module(
     version = "0.1.0",
 )
 
-bazel_dep(name = "rules_cc", version = "0.2.22")
+bazel_dep(name = "rules_cc", version = "0.2.28")
 bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "magic_enum", version = "0.9.8")
 bazel_dep(name = "aws-lc", version = "5.1.0.bcr.3")
 bazel_dep(name = "highway", version = "1.4.0.bcr.1")
+bazel_dep(name = "vulkan_headers", version = "1.4.349")
+bazel_dep(name = "vulkan_memory_allocator", version = "3.3.0")
 
 bazel_dep(name = "googletest", version = "1.18.0", dev_dependency = True)
 bazel_dep(name = "nlohmann_json", version = "3.12.0.bcr.2", dev_dependency = True)
@@ -47,6 +49,14 @@ http_archive(
     sha256 = "13e11c9309fab358d5b6f656050e4f3efa1d20ecf15958ae9055382d07b0268f",
     strip_prefix = "zmij-1.2",
     build_file = "//third_party:zmij.bzl"
+)
+
+http_archive(
+    name = "volk",
+    url = "https://github.com/zeux/volk/archive/refs/tags/vulkan-sdk-1.4.350.1.tar.gz",
+    sha256 = "078a9411298e4e0f60f5f5398c890783427c25a414619294ca8e69587bbd5eae",
+    strip_prefix = "volk-vulkan-sdk-1.4.350.1",
+    build_file = "//third_party:volk.bzl",
 )
 
 # Conformance cases for formats::toml.
