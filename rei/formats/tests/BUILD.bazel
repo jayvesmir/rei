@@ -6,6 +6,7 @@ cc_test(
     size = "small",
 
     srcs = [
+        "json.cpp",
         "toml.cpp",
         "toml_parse.cpp",
         "toml_serialize.cpp",
