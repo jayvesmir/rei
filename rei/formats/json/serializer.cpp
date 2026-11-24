@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -13,6 +12,8 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#include "zmij.h"
 
 #include "rei/core/error.hpp"
 #include "rei/formats/error_code.hpp"
@@ -28,7 +29,7 @@ namespace rei::formats::json {
         constexpr auto headroom = 96uz;
         constexpr auto smallest_estimate = 256uz;
         constexpr auto bytes_per_slot = 14uz;
-        constexpr auto longest_float = 24uz;
+        constexpr auto fixed_limit = 1e16;
         constexpr auto bulk_text = 64uz;
         constexpr auto near_frames = 32uz;
         constexpr std::string_view hex_digits = "0123456789ABCDEF";
@@ -149,11 +150,11 @@ namespace rei::formats::json {
         }
 
         auto floating(char* into, double number) noexcept -> char* {
-            auto* end = std::to_chars(into, into + longest_float, number).ptr;
+            auto* end = zmij::write(into, zmij::double_buffer_size, number);
 
-            const auto whole =
-                std::ranges::none_of(into, end, [](char unit) -> bool { return unit == '.' || unit == 'e'; });
-            if (whole) {
+            const auto magnitude = std::fabs(number);
+            if (magnitude < fixed_limit &&
+                static_cast<double>(static_cast<std::int64_t>(magnitude)) == magnitude) {
                 end[0] = '.';
                 end[1] = '0';
                 end += 2;

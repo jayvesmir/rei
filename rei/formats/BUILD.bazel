@@ -65,6 +65,7 @@ cc_library(
         ":error",
         "//rei/core:error",
         "@highway//:hwy",
+        "@zmij",
     ],
 
     cxxopts = CXXOPTS,
