@@ -45,19 +45,24 @@ cc_library(
         "vk/detail/features.hpp",
         "vk/detail/loader.cpp",
         "vk/detail/loader.hpp",
+        "vk/detail/state.hpp",
 
         "vk/feature.cpp",
+        "vk/instance.cpp",
 
         "@rei_vk_vocabulary//:feature_table.cpp",
     ],
 
     hdrs = [
+        "vk/instance.hpp",
         "vk/vocabulary.hpp",
 
         ":vk_vocabulary",
     ],
 
     deps = [
+        ":vk_error",
+        "//rei/core:error",
         "@volk",
         "@vulkan_headers",
     ],
