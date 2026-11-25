@@ -191,6 +191,12 @@ namespace rei::gpu::vk {
             std::string name;
         };
 
+        struct shader_input {
+            std::uint32_t location{};
+            vk::format format{vk::format::undefined};
+            std::string name;
+        };
+
         struct descriptor_writes {
             std::vector<VkDescriptorBufferInfo> buffers;
             std::vector<VkDescriptorImageInfo> images;
@@ -343,6 +349,7 @@ namespace rei::gpu::vk {
         std::string entry_point;
         vk::extent local_size{};
         std::vector<detail::shader_binding> bindings;
+        std::vector<detail::shader_input> inputs;
         std::uint32_t push_constant_size{};
         bool writes{};
     };

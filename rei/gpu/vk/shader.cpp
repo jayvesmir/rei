@@ -177,6 +177,20 @@ namespace rei::gpu::vk {
                 (storage && (binding.decoration_flags & SPV_REFLECT_DECORATION_NON_WRITABLE) == 0);
         }
 
+        if (state->stage == vk::shader_stage::vertex) {
+            for (const SpvReflectInterfaceVariable* variable :
+                 std::span{entry->input_variables, entry->input_variable_count}) {
+                const auto& input = *variable;
+                if ((input.decoration_flags & SPV_REFLECT_DECORATION_BUILT_IN) == 0) {
+                    state->inputs.push_back({
+                        .location = input.location,
+                        .format = static_cast<vk::format>(std::bit_cast<std::int32_t>(input.format)),
+                        .name = input.name != nullptr ? input.name : "",
+                    });
+                }
+            }
+        }
+
         const auto used_blocks = std::span{entry->used_push_constants, entry->used_push_constant_count};
         for (const auto& block :
              std::span{reflected.push_constant_blocks, reflected.push_constant_block_count}) {
