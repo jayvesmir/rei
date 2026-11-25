@@ -28,6 +28,7 @@
 #include "rei/core/error.hpp"
 #include "rei/gpu/vk/buffer.hpp"
 #include "rei/gpu/vk/commands.hpp"
+#include "rei/gpu/vk/descriptor.hpp"
 #include "rei/gpu/vk/detail/access.hpp"
 #include "rei/gpu/vk/device.hpp"
 #include "rei/gpu/vk/error_code.hpp"
@@ -135,6 +136,31 @@ namespace rei::gpu::vk {
             return name.empty() ? std::format("an unnamed {}", kind) : std::format("{} '{}'", kind, name);
         }
 
+        inline auto type_name(vk::descriptor_type type) noexcept -> std::string_view {
+            switch (static_cast<VkDescriptorType>(type)) {
+            case VK_DESCRIPTOR_TYPE_SAMPLER:
+                return "sampler";
+            case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+                return "combined_image_sampler";
+            case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+                return "sampled_image";
+            case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+                return "storage_image";
+            case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
+                return "uniform_texel_buffer";
+            case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
+                return "storage_texel_buffer";
+            case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+                return "uniform_buffer";
+            case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+                return "storage_buffer";
+            case VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT:
+                return "input_attachment";
+            default:
+                return "descriptor of a type rei doesn't know";
+            }
+        }
+
         struct command_pool {
             VkCommandPool pool{};
             VkCommandBuffer buffer{};
@@ -147,6 +173,9 @@ namespace rei::gpu::vk {
             VkImage image{};
             VkImageView view{};
             VkSampler sampler{};
+            VkDescriptorSetLayout set_layout{};
+            VkDescriptorPool descriptor_pool{};
+            VkDescriptorSet descriptor_set{};
             detail::command_pool pool{};
             VmaAllocation allocation{};
             VkDeviceMemory memory{};
@@ -169,6 +198,19 @@ namespace rei::gpu::vk {
             vk::descriptor_type type{};
             std::uint32_t count{};
             std::string name;
+        };
+
+        struct descriptor_writes {
+            std::vector<VkDescriptorBufferInfo> buffers;
+            std::vector<VkDescriptorImageInfo> images;
+            std::vector<VkWriteDescriptorSet> writes;
+        };
+
+        struct reference {
+            std::uint32_t binding{};
+            std::uint32_t element{};
+            std::string target;
+            std::weak_ptr<const void> resource;
         };
     } // namespace detail
 
@@ -215,6 +257,9 @@ namespace rei::gpu::vk {
         std::vector<detail::retired> retired;
         std::vector<std::weak_ptr<vk::image::state>> new_images;
         std::vector<detail::command_pool> free_pools;
+
+        std::mutex descriptor_mutex;
+        std::vector<VkDescriptorPool> descriptor_pools;
 
         state(vk::instance instance, vk::physical_device physical) noexcept;
         state(const state& other) = delete;
@@ -309,6 +354,31 @@ namespace rei::gpu::vk {
         std::vector<detail::shader_binding> bindings;
         std::uint32_t push_constant_size{};
         bool writes{};
+    };
+
+    struct set_layout::state {
+        std::shared_ptr<vk::device::state> device;
+        VkDescriptorSetLayout handle{};
+        std::vector<vk::set_binding> bindings;
+        bool pushed{};
+        std::string name;
+
+        ~state();
+
+        [[nodiscard]] auto resolve(std::span<const vk::descriptor> descriptors, VkDescriptorSet set) const
+            -> std::expected<detail::descriptor_writes, std::string>;
+    };
+
+    struct descriptor_set::state {
+        std::shared_ptr<vk::device::state> device;
+        std::shared_ptr<const vk::set_layout::state> layout;
+        VkDescriptorPool pool{};
+        VkDescriptorSet handle{};
+        std::vector<detail::reference> references;
+        std::map<std::pair<std::uint32_t, std::uint32_t>, vk::sampler> samplers;
+        std::string name;
+
+        ~state();
     };
 
     struct commands::state {

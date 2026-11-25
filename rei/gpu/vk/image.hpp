@@ -24,7 +24,9 @@ namespace rei::gpu::vk {
     class image_view {
       private:
         friend class commands;
+        friend class descriptor_set;
         friend class image;
+        friend class set_layout;
 
         struct state;
 
@@ -107,6 +109,8 @@ namespace rei::gpu::vk {
 
     class sampler {
       private:
+        friend class set_layout;
+
         struct state;
 
         std::shared_ptr<const sampler::state> m_state;

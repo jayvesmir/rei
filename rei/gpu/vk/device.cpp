@@ -171,6 +171,9 @@ namespace rei::gpu::vk {
         for (const auto& pool : free_pools) {
             table.vkDestroyCommandPool(handle, pool.pool, nullptr);
         }
+        for (const VkDescriptorPool pool : descriptor_pools) {
+            table.vkDestroyDescriptorPool(handle, pool, nullptr);
+        }
 
         table.vkDestroySemaphore(handle, queue.timeline, nullptr);
         vmaDestroyAllocator(allocator);
@@ -298,6 +301,14 @@ namespace rei::gpu::vk {
 
             if (item.memory != VK_NULL_HANDLE) {
                 table.vkFreeMemory(handle, item.memory, nullptr);
+            }
+
+            if (item.set_layout != VK_NULL_HANDLE) {
+                table.vkDestroyDescriptorSetLayout(handle, item.set_layout, nullptr);
+            }
+            if (item.descriptor_set != VK_NULL_HANDLE) {
+                const auto lock = std::scoped_lock{descriptor_mutex};
+                table.vkFreeDescriptorSets(handle, item.descriptor_pool, 1, &item.descriptor_set);
             }
 
             if (item.pool.pool != VK_NULL_HANDLE) {
