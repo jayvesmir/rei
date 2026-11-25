@@ -50,10 +50,12 @@ cc_library(
         "vk/detail/state.hpp",
 
         "vk/buffer.cpp",
+        "vk/commands.cpp",
         "vk/device.cpp",
         "vk/feature.cpp",
         "vk/image.cpp",
         "vk/instance.cpp",
+        "vk/queue.cpp",
 
         "@rei_vk_vocabulary//:feature_table.cpp",
         "@rei_vk_vocabulary//:format_table.cpp",
@@ -62,6 +64,7 @@ cc_library(
     hdrs = [
         "vk.hpp",
         "vk/buffer.hpp",
+        "vk/commands.hpp",
         "vk/device.hpp",
         "vk/image.hpp",
         "vk/instance.hpp",

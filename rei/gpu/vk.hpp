@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rei/gpu/vk/buffer.hpp"
+#include "rei/gpu/vk/commands.hpp"
 #include "rei/gpu/vk/device.hpp"
 #include "rei/gpu/vk/error_code.hpp"
 #include "rei/gpu/vk/image.hpp"

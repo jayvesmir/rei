@@ -3,9 +3,11 @@
 #include <chrono>
 #include <cstdint>
 #include <expected>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <vulkan/vulkan_core.h>
@@ -20,6 +22,7 @@ namespace volk {
 
 namespace rei::gpu::vk {
     class buffer;
+    class commands;
     class image;
     class image_view;
     class queue;
@@ -41,8 +44,10 @@ namespace rei::gpu::vk {
     class device {
       private:
         friend class buffer;
+        friend class commands;
         friend class image;
         friend class image_view;
+        friend class queue;
         friend class sampler;
 
         struct state;
@@ -81,6 +86,10 @@ namespace rei::gpu::vk {
         explicit queue(std::shared_ptr<queue::state> state) noexcept;
 
       public:
+        [[nodiscard]] auto record(std::string_view name = {}) const -> vk::commands;
+        auto submit(vk::commands commands, std::initializer_list<vk::ticket> after = {}) const
+            -> std::expected<vk::ticket, rei::error>;
+
         [[nodiscard]] auto family() const noexcept -> std::uint32_t;
         [[nodiscard]] auto handle() const noexcept -> VkQueue;
     };

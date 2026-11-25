@@ -191,7 +191,7 @@ namespace rei::gpu::vk {
     } // namespace
 
     device::state::state(vk::instance instance, vk::physical_device physical) noexcept
-        : instance(std::move(instance)), physical(std::move(physical)) {}
+        : instance(std::move(instance)), physical(std::move(physical)), queue{.device = *this} {}
 
     device::state::~state() {
         if (handle == VK_NULL_HANDLE) {
@@ -420,6 +420,8 @@ namespace rei::gpu::vk {
         state->limits = chosen->limits;
         state->features = std::move(chosen->features);
         state->tracing = context.trace;
+        state->labeling = (context.trace || context.validation != vk::validation::none) &&
+                          context.table.vkCmdBeginDebugUtilsLabelEXT != nullptr;
 
         const auto timeline_type = VkSemaphoreTypeCreateInfo{
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,

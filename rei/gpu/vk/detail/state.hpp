@@ -27,6 +27,8 @@
 
 #include "rei/core/error.hpp"
 #include "rei/gpu/vk/buffer.hpp"
+#include "rei/gpu/vk/commands.hpp"
+#include "rei/gpu/vk/detail/access.hpp"
 #include "rei/gpu/vk/device.hpp"
 #include "rei/gpu/vk/error_code.hpp"
 #include "rei/gpu/vk/image.hpp"
@@ -144,6 +146,17 @@ namespace rei::gpu::vk {
             VmaAllocation allocation{};
             VkDeviceMemory memory{};
         };
+
+        struct barrier {
+            std::string target;
+            VkBuffer buffer{};
+            VkImage image{};
+            VkImageSubresourceRange range{};
+            detail::use from;
+            detail::use to;
+            bool discard{};
+            bool folded{};
+        };
     } // namespace detail
 
     struct instance::state {
@@ -163,6 +176,7 @@ namespace rei::gpu::vk {
     };
 
     struct queue::state {
+        vk::device::state& device;
         VkQueue handle{};
         std::uint32_t family{};
         VkSemaphore timeline{};
@@ -179,6 +193,7 @@ namespace rei::gpu::vk {
         VmaAllocator allocator{};
         std::vector<bool> features;
         bool tracing{};
+        bool labeling{};
         vk::queue::state queue;
 
         std::mutex mutex;
@@ -269,5 +284,54 @@ namespace rei::gpu::vk {
         std::string name;
 
         ~state();
+    };
+
+    struct commands::state {
+        std::shared_ptr<vk::device::state> device;
+        std::uint64_t serial{};
+        std::string name;
+        detail::command_pool pool{};
+        std::vector<detail::retired> staging;
+        std::vector<detail::barrier> pending;
+        std::optional<rei::error> failure;
+        bool settled{};
+
+        state(std::shared_ptr<vk::device::state> device, std::uint64_t serial, std::string name) noexcept;
+        state(const state& other) = delete;
+        auto operator=(const state& other) -> state& = delete;
+        ~state();
+
+        [[nodiscard]] auto label() const -> std::string;
+
+        auto fail(std::error_code code, std::string detail) -> void;
+
+        template <typename StateType>
+        auto usable(const std::shared_ptr<StateType>& resource, std::string_view call, std::string_view kind)
+            -> bool {
+            if (!resource) {
+                fail(vk::error_code::invalid_argument, std::format("{}: the {} was moved from", call, kind));
+            } else if (resource->device != device) {
+                fail(vk::error_code::invalid_argument, std::format("{}: {} belongs to another device", call,
+                                                                   detail::quoted(resource->name, kind)));
+            }
+
+            return !failure;
+        }
+
+        template <typename... Args>
+        auto trace(std::string_view workflow, std::format_string<Args...> format, Args&&... args) const
+            -> void {
+            if (device->tracing) {
+                device->emit(std::format("{}: {}: {}", label(), workflow,
+                                         std::format(format, std::forward<Args>(args)...)));
+            }
+        }
+
+        auto begin(std::string_view workflow) const -> void;
+        auto end() const -> void;
+
+        auto add(std::string_view workflow, detail::barrier barrier) -> void;
+        auto flush(std::string_view workflow) -> void;
+        auto finish() -> void;
     };
 } // namespace rei::gpu::vk
