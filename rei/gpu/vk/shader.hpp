@@ -14,6 +14,7 @@ namespace rei::gpu::vk {
     class shader {
       private:
         friend class compute_pipeline;
+        friend class graphics_pipeline;
         friend class set_layout;
 
         struct state;

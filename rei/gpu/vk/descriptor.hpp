@@ -39,6 +39,7 @@ namespace rei::gpu::vk {
         friend class commands;
         friend class compute_pipeline;
         friend class descriptor_set;
+        friend class graphics_pipeline;
 
         struct state;
 

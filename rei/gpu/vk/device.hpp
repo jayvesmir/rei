@@ -25,6 +25,7 @@ namespace rei::gpu::vk {
     class commands;
     class compute_pipeline;
     class descriptor_set;
+    class graphics_pipeline;
     class image;
     class image_view;
     class queue;
@@ -50,6 +51,7 @@ namespace rei::gpu::vk {
         friend class commands;
         friend class compute_pipeline;
         friend class descriptor_set;
+        friend class graphics_pipeline;
         friend class image;
         friend class image_view;
         friend class queue;

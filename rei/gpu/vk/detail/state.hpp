@@ -210,6 +210,14 @@ namespace rei::gpu::vk {
             std::weak_ptr<const void> resource;
         };
 
+        struct target_formats {
+            std::vector<vk::format> color;
+            std::optional<vk::format> depth;
+            std::uint32_t samples{1};
+
+            auto operator==(const target_formats& other) const noexcept -> bool = default;
+        };
+
         struct pipeline_state {
             std::string_view kind;
             VkPipeline handle{};
@@ -269,6 +277,8 @@ namespace rei::gpu::vk {
 
         std::mutex descriptor_mutex;
         std::vector<VkDescriptorPool> descriptor_pools;
+
+        std::atomic<std::uint32_t> storage_writers{};
 
         state(vk::instance instance, vk::physical_device physical) noexcept;
         state(const state& other) = delete;
@@ -399,6 +409,14 @@ namespace rei::gpu::vk {
 
     struct compute_pipeline::state : detail::pipeline_state {
         std::shared_ptr<vk::device::state> device;
+
+        ~state();
+    };
+
+    struct graphics_pipeline::state : detail::pipeline_state {
+        std::shared_ptr<vk::device::state> device;
+        detail::target_formats targets;
+        std::uint32_t vertex_inputs{};
 
         ~state();
     };
