@@ -23,17 +23,23 @@ namespace rei::gpu::vk {
             const auto what = detail::quoted(options.name, "buffer");
 
             if (options.size == 0) {
-                return detail::failure(vk::error_code::invalid_argument, std::format("{}: size is 0", what));
+                return std::unexpected(rei::error{
+                    vk::error_code::invalid_argument,
+                    std::format("{}: size is 0", what),
+                });
             }
             if (std::to_underlying(options.usage) == 0) {
-                return detail::failure(vk::error_code::invalid_argument,
-                                       std::format("{}: usage is empty", what));
+                return std::unexpected(rei::error{
+                    vk::error_code::invalid_argument,
+                    std::format("{}: usage is empty", what),
+                });
             }
             if (vk::has(options.usage, vk::buffer_usage::shader_device_address) &&
                 !device.has(vk::feature::buffer_device_address)) {
-                return detail::failure(
+                return std::unexpected(rei::error{
                     vk::error_code::missing_feature,
-                    std::format("{}: shader_device_address needs the feature buffer_device_address", what));
+                    std::format("{}: shader_device_address needs the feature buffer_device_address", what),
+                });
             }
 
             return {};
@@ -87,9 +93,8 @@ namespace rei::gpu::vk {
         if (const auto result = vmaCreateBuffer(state->device->allocator, &info, &allocation_info,
                                                 &state->handle, &state->allocation, &allocated);
             result != VK_SUCCESS) {
-            const auto error = detail::failure(result, "vmaCreateBuffer").error();
-            return detail::failure(
-                error.code(), std::format("{}: {}", detail::quoted(options.name, "buffer"), error.detail()));
+            return std::unexpected(
+                detail::vulkan_error(result, "vmaCreateBuffer", detail::quoted(options.name, "buffer")));
         }
 
         if (options.host != vk::host_access::none) {
@@ -116,10 +121,11 @@ namespace rei::gpu::vk {
             return std::unexpected(checked.error());
         }
         if (options.host != vk::host_access::none) {
-            return detail::failure(
+            return std::unexpected(rei::error{
                 vk::error_code::invalid_argument,
                 std::format("{}: an adopted buffer has no host access, map its memory yourself",
-                            detail::quoted(options.name, "buffer")));
+                            detail::quoted(options.name, "buffer")),
+            });
         }
 
         auto state = std::make_shared<buffer::state>();
@@ -149,13 +155,17 @@ namespace rei::gpu::vk {
         const auto what = std::format("write into {}", detail::quoted(state.name, "buffer"));
 
         if (state.host == vk::host_access::none) {
-            return detail::failure(vk::error_code::invalid_argument,
-                                   std::format("{}: it has no host access", what));
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_argument,
+                std::format("{}: it has no host access", what),
+            });
         }
         if (!detail::fits(state.size, offset, data.size())) {
-            return detail::failure(vk::error_code::invalid_argument,
-                                   std::format("{}: {} bytes at offset {} go past its end at {}", what,
-                                               data.size(), offset, state.size));
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_argument,
+                std::format("{}: {} bytes at offset {} go past its end at {}", what, data.size(), offset,
+                            state.size),
+            });
         }
 
         std::ranges::copy(data, state.mapped.subspan(offset).begin());
@@ -163,7 +173,7 @@ namespace rei::gpu::vk {
         if (const auto result =
                 vmaFlushAllocation(state.device->allocator, state.allocation, offset, data.size());
             result != VK_SUCCESS) {
-            return detail::failure(result, "vmaFlushAllocation");
+            return std::unexpected(detail::vulkan_error(result, "vmaFlushAllocation"));
         }
 
         return {};
@@ -175,19 +185,23 @@ namespace rei::gpu::vk {
         const auto what = std::format("read from {}", detail::quoted(state.name, "buffer"));
 
         if (state.host != vk::host_access::read_write) {
-            return detail::failure(vk::error_code::invalid_argument,
-                                   std::format("{}: reading needs host_access::read_write", what));
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_argument,
+                std::format("{}: reading needs host_access::read_write", what),
+            });
         }
         if (!detail::fits(state.size, offset, data.size())) {
-            return detail::failure(vk::error_code::invalid_argument,
-                                   std::format("{}: {} bytes at offset {} go past its end at {}", what,
-                                               data.size(), offset, state.size));
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_argument,
+                std::format("{}: {} bytes at offset {} go past its end at {}", what, data.size(), offset,
+                            state.size),
+            });
         }
 
         if (const auto result =
                 vmaInvalidateAllocation(state.device->allocator, state.allocation, offset, data.size());
             result != VK_SUCCESS) {
-            return detail::failure(result, "vmaInvalidateAllocation");
+            return std::unexpected(detail::vulkan_error(result, "vmaInvalidateAllocation"));
         }
 
         std::ranges::copy(state.mapped.subspan(offset, data.size()), data.begin());
@@ -203,15 +217,16 @@ namespace rei::gpu::vk {
         const auto& state = *m_state;
 
         if (state.host == vk::host_access::none) {
-            return detail::failure(
+            return std::unexpected(rei::error{
                 vk::error_code::invalid_argument,
-                std::format("flush of {}: it has no host access", detail::quoted(state.name, "buffer")));
+                std::format("flush of {}: it has no host access", detail::quoted(state.name, "buffer")),
+            });
         }
 
         if (const auto result =
                 vmaFlushAllocation(state.device->allocator, state.allocation, 0, VK_WHOLE_SIZE);
             result != VK_SUCCESS) {
-            return detail::failure(result, "vmaFlushAllocation");
+            return std::unexpected(detail::vulkan_error(result, "vmaFlushAllocation"));
         }
 
         return {};

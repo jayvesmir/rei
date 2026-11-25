@@ -11,11 +11,6 @@ namespace rei::gpu::vk::detail {
         std::mutex tables;
     } // namespace
 
-    auto load_loader() -> bool {
-        static const auto loaded = volk::volkInitialize() == VK_SUCCESS;
-        return loaded;
-    }
-
     auto load(volk::VolkInstanceTable& table, VkInstance instance) -> void {
         const auto lock = std::scoped_lock{tables};
         volk::volkLoadInstanceTable(&table, instance);

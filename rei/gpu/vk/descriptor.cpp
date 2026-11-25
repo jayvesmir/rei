@@ -189,14 +189,17 @@ namespace rei::gpu::vk {
 
         const auto repeated = std::ranges::adjacent_find(state->bindings, {}, &vk::set_binding::binding);
         if (repeated != state->bindings.end()) {
-            return detail::failure(vk::error_code::invalid_argument,
-                                   std::format("{}: binding {} is listed twice", what, repeated->binding));
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_argument,
+                std::format("{}: binding {} is listed twice", what, repeated->binding),
+            });
         }
         for (const auto& binding : state->bindings) {
             if (binding.count == 0 || std::to_underlying(binding.stages) == 0) {
-                return detail::failure(
+                return std::unexpected(rei::error{
                     vk::error_code::invalid_argument,
-                    std::format("{}: binding {} has a count of 0 or no stages", what, binding.binding));
+                    std::format("{}: binding {} has a count of 0 or no stages", what, binding.binding),
+                });
             }
         }
 
@@ -225,8 +228,7 @@ namespace rei::gpu::vk {
         if (const auto result =
                 context.table.vkCreateDescriptorSetLayout(context.handle, &info, nullptr, &state->handle);
             result != VK_SUCCESS) {
-            const auto error = detail::failure(result, "vkCreateDescriptorSetLayout").error();
-            return detail::failure(error.code(), std::format("{}: {}", what, error.detail()));
+            return std::unexpected(detail::vulkan_error(result, "vkCreateDescriptorSetLayout", what));
         }
 
         context.name(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, reinterpret_cast<std::uint64_t>(state->handle),
@@ -260,14 +262,18 @@ namespace rei::gpu::vk {
         const auto& layout = *options.layout.m_state;
 
         if (layout.device != device.m_state) {
-            return detail::failure(vk::error_code::invalid_argument,
-                                   std::format("{}: {} belongs to another device", what,
-                                               detail::quoted(layout.name, "set layout")));
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_argument,
+                std::format("{}: {} belongs to another device", what,
+                            detail::quoted(layout.name, "set layout")),
+            });
         }
         if (layout.pushed) {
-            return detail::failure(vk::error_code::invalid_argument,
-                                   std::format("{}: {} is pushed, so it has no sets", what,
-                                               detail::quoted(layout.name, "set layout")));
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_argument,
+                std::format("{}: {} is pushed, so it has no sets", what,
+                            detail::quoted(layout.name, "set layout")),
+            });
         }
 
         auto state = std::make_shared<descriptor_set::state>();
@@ -293,8 +299,7 @@ namespace rei::gpu::vk {
                 break;
             }
             if (result != VK_ERROR_OUT_OF_POOL_MEMORY && result != VK_ERROR_FRAGMENTED_POOL) {
-                const auto error = detail::failure(result, "vkAllocateDescriptorSets").error();
-                return detail::failure(error.code(), std::format("{}: {}", what, error.detail()));
+                return std::unexpected(detail::vulkan_error(result, "vkAllocateDescriptorSets", what));
             }
         }
 
@@ -330,8 +335,7 @@ namespace rei::gpu::vk {
             if (const auto result =
                     context.table.vkCreateDescriptorPool(context.handle, &info, nullptr, &pool);
                 result != VK_SUCCESS) {
-                const auto error = detail::failure(result, "vkCreateDescriptorPool").error();
-                return detail::failure(error.code(), std::format("{}: {}", what, error.detail()));
+                return std::unexpected(detail::vulkan_error(result, "vkCreateDescriptorPool", what));
             }
             context.descriptor_pools.push_back(pool);
             context.trace("descriptor pool {}: room for {} sets", context.descriptor_pools.size(), capacity);
@@ -340,8 +344,7 @@ namespace rei::gpu::vk {
             if (const auto result =
                     context.table.vkAllocateDescriptorSets(context.handle, &allocation, &state->handle);
                 result != VK_SUCCESS) {
-                const auto error = detail::failure(result, "vkAllocateDescriptorSets").error();
-                return detail::failure(error.code(), std::format("{}: {}", what, error.detail()));
+                return std::unexpected(detail::vulkan_error(result, "vkAllocateDescriptorSets", what));
             }
             state->pool = pool;
         }
@@ -364,10 +367,11 @@ namespace rei::gpu::vk {
 
         const auto resolved = state.layout->resolve(descriptors, state.handle);
         if (!resolved) {
-            return detail::failure(vk::error_code::invalid_argument,
-                                   std::format("write into {}: {}",
-                                               detail::quoted(state.name, "descriptor set"),
-                                               resolved.error()));
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_argument,
+                std::format("write into {}: {}", detail::quoted(state.name, "descriptor set"),
+                            resolved.error()),
+            });
         }
         context.table.vkUpdateDescriptorSets(context.handle,
                                              static_cast<std::uint32_t>(resolved->writes.size()),

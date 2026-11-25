@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -39,48 +40,25 @@
 
 namespace rei::gpu::vk {
     namespace detail {
-        inline auto failure(std::error_code code, std::string detail,
-                            std::source_location location = std::source_location::current())
-            -> std::unexpected<rei::error> {
-            return std::unexpected(rei::error{code, std::move(detail), location});
-        }
+        inline auto vulkan_error(VkResult result, std::string_view call, std::string_view context = {},
+                                 std::source_location location = std::source_location::current())
+            -> rei::error {
+            constexpr auto names = std::to_array<std::pair<VkResult, std::string_view>>({
+                {VK_ERROR_OUT_OF_HOST_MEMORY, "VK_ERROR_OUT_OF_HOST_MEMORY"},
+                {VK_ERROR_OUT_OF_DEVICE_MEMORY, "VK_ERROR_OUT_OF_DEVICE_MEMORY"},
+                {VK_ERROR_INITIALIZATION_FAILED, "VK_ERROR_INITIALIZATION_FAILED"},
+                {VK_ERROR_DEVICE_LOST, "VK_ERROR_DEVICE_LOST"},
+                {VK_ERROR_MEMORY_MAP_FAILED, "VK_ERROR_MEMORY_MAP_FAILED"},
+                {VK_ERROR_LAYER_NOT_PRESENT, "VK_ERROR_LAYER_NOT_PRESENT"},
+                {VK_ERROR_EXTENSION_NOT_PRESENT, "VK_ERROR_EXTENSION_NOT_PRESENT"},
+                {VK_ERROR_FEATURE_NOT_PRESENT, "VK_ERROR_FEATURE_NOT_PRESENT"},
+                {VK_ERROR_INCOMPATIBLE_DRIVER, "VK_ERROR_INCOMPATIBLE_DRIVER"},
+                {VK_ERROR_TOO_MANY_OBJECTS, "VK_ERROR_TOO_MANY_OBJECTS"},
+                {VK_ERROR_FORMAT_NOT_SUPPORTED, "VK_ERROR_FORMAT_NOT_SUPPORTED"},
+                {VK_ERROR_FRAGMENTED_POOL, "VK_ERROR_FRAGMENTED_POOL"},
+                {VK_ERROR_UNKNOWN, "VK_ERROR_UNKNOWN"},
+            });
 
-        inline auto result_name(VkResult result) -> std::string {
-            switch (result) {
-            case VK_ERROR_OUT_OF_HOST_MEMORY:
-                return "VK_ERROR_OUT_OF_HOST_MEMORY";
-            case VK_ERROR_OUT_OF_DEVICE_MEMORY:
-                return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
-            case VK_ERROR_INITIALIZATION_FAILED:
-                return "VK_ERROR_INITIALIZATION_FAILED";
-            case VK_ERROR_DEVICE_LOST:
-                return "VK_ERROR_DEVICE_LOST";
-            case VK_ERROR_MEMORY_MAP_FAILED:
-                return "VK_ERROR_MEMORY_MAP_FAILED";
-            case VK_ERROR_LAYER_NOT_PRESENT:
-                return "VK_ERROR_LAYER_NOT_PRESENT";
-            case VK_ERROR_EXTENSION_NOT_PRESENT:
-                return "VK_ERROR_EXTENSION_NOT_PRESENT";
-            case VK_ERROR_FEATURE_NOT_PRESENT:
-                return "VK_ERROR_FEATURE_NOT_PRESENT";
-            case VK_ERROR_INCOMPATIBLE_DRIVER:
-                return "VK_ERROR_INCOMPATIBLE_DRIVER";
-            case VK_ERROR_TOO_MANY_OBJECTS:
-                return "VK_ERROR_TOO_MANY_OBJECTS";
-            case VK_ERROR_FORMAT_NOT_SUPPORTED:
-                return "VK_ERROR_FORMAT_NOT_SUPPORTED";
-            case VK_ERROR_FRAGMENTED_POOL:
-                return "VK_ERROR_FRAGMENTED_POOL";
-            case VK_ERROR_UNKNOWN:
-                return "VK_ERROR_UNKNOWN";
-            default:
-                return std::format("VkResult {}", std::to_underlying(result));
-            }
-        }
-
-        inline auto failure(VkResult result, std::string_view call,
-                            std::source_location location = std::source_location::current())
-            -> std::unexpected<rei::error> {
             auto code = vk::error_code::driver_error;
             if (result == VK_ERROR_OUT_OF_HOST_MEMORY || result == VK_ERROR_OUT_OF_DEVICE_MEMORY) {
                 code = vk::error_code::out_of_memory;
@@ -88,8 +66,18 @@ namespace rei::gpu::vk {
                 code = vk::error_code::device_lost;
             }
 
-            return detail::failure(code, std::format("{} returned {}", call, detail::result_name(result)),
-                                   location);
+            auto name = std::string_view{};
+            for (const auto& [known, spelled] : names) {
+                if (known == result) {
+                    name = spelled;
+                }
+            }
+
+            const auto text = name.empty()
+                                  ? std::format("{} returned VkResult {}", call, std::to_underlying(result))
+                                  : std::format("{} returned {}", call, name);
+
+            return rei::error{code, context.empty() ? text : std::format("{}: {}", context, text), location};
         }
 
         template <typename ItemType, typename CallType>
@@ -111,7 +99,7 @@ namespace rei::gpu::vk {
             }
 
             if (result != VK_SUCCESS) {
-                return detail::failure(result, call_name);
+                return std::unexpected(detail::vulkan_error(result, call_name));
             }
 
             return items;

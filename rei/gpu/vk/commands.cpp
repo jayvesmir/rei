@@ -276,9 +276,10 @@ namespace rei::gpu::vk {
         if (const auto result = vmaCreateBuffer(device->allocator, &info, &allocation_info, &staged.buffer,
                                                 &staged.allocation, &allocated);
             result != VK_SUCCESS) {
-            const auto error = detail::failure(result, "vmaCreateBuffer").error();
-            fail(error.code(),
-                 std::format("{}: no staging buffer of {} bytes: {}", call, data.size(), error.detail()));
+            const auto error =
+                detail::vulkan_error(result, "vmaCreateBuffer",
+                                     std::format("{}: no staging buffer of {} bytes", call, data.size()));
+            fail(error.code(), error.detail());
             return std::nullopt;
         }
         staging.push_back(staged);
@@ -286,8 +287,8 @@ namespace rei::gpu::vk {
         std::ranges::copy(data, static_cast<std::byte*>(allocated.pMappedData));
         if (const auto result = vmaFlushAllocation(device->allocator, staged.allocation, 0, VK_WHOLE_SIZE);
             result != VK_SUCCESS) {
-            const auto error = detail::failure(result, "vmaFlushAllocation").error();
-            fail(error.code(), std::format("{}: {}", call, error.detail()));
+            const auto error = detail::vulkan_error(result, "vmaFlushAllocation", call);
+            fail(error.code(), error.detail());
             return std::nullopt;
         }
 

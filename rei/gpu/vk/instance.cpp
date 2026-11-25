@@ -34,30 +34,6 @@ namespace rei::gpu::vk {
             "syncval_load_op_after_store_op_validation",
         });
 
-        auto print_message(const vk::message& message) -> void {
-            auto severity = std::string_view{"message"};
-            switch (message.severity) {
-            case vk::severity::trace:
-                severity = "trace";
-                break;
-            case vk::severity::verbose:
-                severity = "verbose";
-                break;
-            case vk::severity::info:
-                severity = "info";
-                break;
-            case vk::severity::warning:
-                severity = "warning";
-                break;
-            case vk::severity::error:
-                severity = "error";
-                break;
-            }
-
-            std::println(stderr, "vulkan {}: {}{}{}", severity, message.id, message.id.empty() ? "" : ": ",
-                         message.text);
-        }
-
         VKAPI_ATTR auto VKAPI_CALL forward_message(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
                                                    [[maybe_unused]] VkDebugUtilsMessageTypeFlagsEXT types,
                                                    const VkDebugUtilsMessengerCallbackDataEXT* data,
@@ -96,9 +72,12 @@ namespace rei::gpu::vk {
     instance::instance(std::shared_ptr<instance::state> state) noexcept : m_state(std::move(state)) {}
 
     auto instance::make(const vk::instance_options& options) -> std::expected<vk::instance, rei::error> {
-        if (!detail::load_loader()) {
-            return detail::failure(vk::error_code::loader_not_found,
-                                   "the Vulkan loader library was not found");
+        static const auto loaded = volk::volkInitialize() == VK_SUCCESS;
+        if (!loaded) {
+            return std::unexpected(rei::error{
+                vk::error_code::loader_not_found,
+                "the Vulkan loader library was not found",
+            });
         }
 
         const auto validating = options.validation != vk::validation::none;
@@ -126,8 +105,10 @@ namespace rei::gpu::vk {
                                        [](const VkLayerProperties& layer) -> std::string_view {
                                            return std::string_view{layer.layerName};
                                        })) {
-                return detail::failure(vk::error_code::missing_layer,
-                                       std::format("the layer {} is not installed", validation_layer));
+                return std::unexpected(rei::error{
+                    vk::error_code::missing_layer,
+                    std::format("the layer {} is not installed", validation_layer),
+                });
             }
 
             const auto provided = detail::enumerate<VkExtensionProperties>(
@@ -144,22 +125,51 @@ namespace rei::gpu::vk {
         }
 
         if (synchronizing && !detail::has_extension(*available, layer_settings)) {
-            return detail::failure(vk::error_code::missing_extension,
-                                   std::format("{} is too old for validation::full, it lacks {}",
-                                               validation_layer, layer_settings));
+            return std::unexpected(rei::error{
+                vk::error_code::missing_extension,
+                std::format("{} is too old for validation::full, it lacks {}", validation_layer,
+                            layer_settings),
+            });
         }
 
         auto state = std::make_shared<instance::state>();
-        state->on_message = options.on_message ? options.on_message : print_message;
         state->validation = options.validation;
+        state->on_message = options.on_message;
+        if (!state->on_message) {
+            state->on_message = [](const vk::message& message) -> void {
+                auto severity = std::string_view{"message"};
+                switch (message.severity) {
+                case vk::severity::trace:
+                    severity = "trace";
+                    break;
+                case vk::severity::verbose:
+                    severity = "verbose";
+                    break;
+                case vk::severity::info:
+                    severity = "info";
+                    break;
+                case vk::severity::warning:
+                    severity = "warning";
+                    break;
+                case vk::severity::error:
+                    severity = "error";
+                    break;
+                }
+
+                std::println(stderr, "vulkan {}: {}{}{}", severity, message.id,
+                             message.id.empty() ? "" : ": ", message.text);
+            };
+        }
 
         const auto* const variable = std::getenv("REI_GPU_VK_TRACE");
         state->trace = options.trace || (variable != nullptr && std::string_view{variable} == "1");
 
         for (const auto& name : options.extensions) {
             if (!detail::has_extension(*available, name)) {
-                return detail::failure(vk::error_code::missing_extension,
-                                       std::format("the instance extension {} is not available", name));
+                return std::unexpected(rei::error{
+                    vk::error_code::missing_extension,
+                    std::format("the instance extension {} is not available", name),
+                });
             }
             if (!std::ranges::contains(state->extensions, name)) {
                 state->extensions.push_back(name);
@@ -232,13 +242,15 @@ namespace rei::gpu::vk {
 
         const auto result = volk::vkCreateInstance(&info, nullptr, &state->handle);
         if (result == VK_ERROR_INCOMPATIBLE_DRIVER) {
-            return detail::failure(vk::error_code::no_suitable_device,
-                                   "no Vulkan driver was found, vkCreateInstance returned " +
-                                       detail::result_name(result));
+            return std::unexpected(rei::error{
+                vk::error_code::no_suitable_device,
+                "no Vulkan driver was found, vkCreateInstance returned VK_ERROR_INCOMPATIBLE_DRIVER",
+            });
         }
         if (result != VK_SUCCESS) {
-            return detail::failure(result, "vkCreateInstance");
+            return std::unexpected(detail::vulkan_error(result, "vkCreateInstance"));
         }
+
         detail::load(state->table, state->handle);
 
         if (reporting) {
@@ -246,7 +258,7 @@ namespace rei::gpu::vk {
             const auto created = state->table.vkCreateDebugUtilsMessengerEXT(state->handle, &messenger,
                                                                              nullptr, &state->messenger);
             if (created != VK_SUCCESS) {
-                return detail::failure(created, "vkCreateDebugUtilsMessengerEXT");
+                return std::unexpected(detail::vulkan_error(created, "vkCreateDebugUtilsMessengerEXT"));
             }
         }
 

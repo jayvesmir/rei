@@ -32,6 +32,11 @@ namespace rei::gpu::vk {
             vk::feature::push_descriptor,    vk::feature::maintenance5,     vk::feature::scalar_block_layout,
         };
 
+        constexpr auto preference = std::array{
+            vk::device_type::discrete_gpu, vk::device_type::integrated_gpu, vk::device_type::virtual_gpu,
+            vk::device_type::cpu,          vk::device_type::other,
+        };
+
         struct candidate {
             vk::physical_device physical;
             VkPhysicalDeviceLimits limits;
@@ -40,33 +45,18 @@ namespace rei::gpu::vk {
             std::vector<std::string> extensions;
         };
 
-        auto rank(vk::device_type type) noexcept -> std::int32_t {
-            switch (type) {
-            case vk::device_type::discrete_gpu:
-                return 0;
-            case vk::device_type::integrated_gpu:
-                return 1;
-            case vk::device_type::virtual_gpu:
-                return 2;
-            case vk::device_type::cpu:
-                return 3;
-            case vk::device_type::other:
-                return 4;
-            }
-
-            return 4;
-        }
-
         auto assess(const volk::VolkInstanceTable& table, std::span<const std::string> instance_extensions,
                     const vk::physical_device& physical, const vk::device_options& options)
             -> std::expected<candidate, rei::error> {
             auto properties = VkPhysicalDeviceProperties{};
             table.vkGetPhysicalDeviceProperties(physical.handle, &properties);
             if (properties.apiVersion < VK_API_VERSION_1_4) {
-                return detail::failure(vk::error_code::no_suitable_device,
-                                       std::format("'{}' supports Vulkan {}.{} and rei needs 1.4",
-                                                   physical.name, VK_API_VERSION_MAJOR(properties.apiVersion),
-                                                   VK_API_VERSION_MINOR(properties.apiVersion)));
+                return std::unexpected(rei::error{
+                    vk::error_code::no_suitable_device,
+                    std::format("'{}' supports Vulkan {}.{} and rei needs 1.4", physical.name,
+                                VK_API_VERSION_MAJOR(properties.apiVersion),
+                                VK_API_VERSION_MINOR(properties.apiVersion)),
+                });
             }
 
             auto family_count = std::uint32_t{};
@@ -80,9 +70,10 @@ namespace rei::gpu::vk {
                     return (properties.queueFlags & needed) == needed;
                 });
             if (family == families.end()) {
-                return detail::failure(
+                return std::unexpected(rei::error{
                     vk::error_code::no_suitable_device,
-                    std::format("'{}' has no queue for graphics and compute", physical.name));
+                    std::format("'{}' has no queue for graphics and compute", physical.name),
+                });
             }
 
             const auto supported = detail::enumerate<VkExtensionProperties>(
@@ -134,20 +125,25 @@ namespace rei::gpu::vk {
                         }
                     }
                 } else if (i < required && missing == info.extensions.end()) {
-                    return detail::failure(vk::error_code::missing_feature,
-                                           std::format("'{}' lacks {}", physical.name, info.name));
+                    return std::unexpected(rei::error{
+                        vk::error_code::missing_feature,
+                        std::format("'{}' lacks {}", physical.name, info.name),
+                    });
                 } else if (i < required) {
-                    return detail::failure(
+                    return std::unexpected(rei::error{
                         vk::error_code::missing_feature,
                         std::format("'{}' lacks {}, which needs the {} extension {}", physical.name,
-                                    info.name, missing->is_instance ? "instance" : "device", missing->name));
+                                    info.name, missing->is_instance ? "instance" : "device", missing->name),
+                    });
                 }
             }
 
             for (const auto& name : options.extensions) {
                 if (!detail::has_extension(*supported, name)) {
-                    return detail::failure(vk::error_code::missing_extension,
-                                           std::format("'{}' lacks the extension {}", physical.name, name));
+                    return std::unexpected(rei::error{
+                        vk::error_code::missing_extension,
+                        std::format("'{}' lacks the extension {}", physical.name, name),
+                    });
                 }
                 if (!std::ranges::contains(chosen.extensions, name)) {
                     chosen.extensions.push_back(name);
@@ -214,7 +210,7 @@ namespace rei::gpu::vk {
         };
         if (const auto result = table.vkCreateCommandPool(handle, &pool_info, nullptr, &pool.pool);
             result != VK_SUCCESS) {
-            return detail::failure(result, "vkCreateCommandPool");
+            return std::unexpected(detail::vulkan_error(result, "vkCreateCommandPool"));
         }
 
         const auto buffer_info = VkCommandBufferAllocateInfo{
@@ -226,7 +222,7 @@ namespace rei::gpu::vk {
         if (const auto result = table.vkAllocateCommandBuffers(handle, &buffer_info, &pool.buffer);
             result != VK_SUCCESS) {
             table.vkDestroyCommandPool(handle, pool.pool, nullptr);
-            return detail::failure(result, "vkAllocateCommandBuffers");
+            return std::unexpected(detail::vulkan_error(result, "vkAllocateCommandBuffers"));
         }
 
         return pool;
@@ -358,7 +354,8 @@ namespace rei::gpu::vk {
 
                 if (!assessed) {
                     reasons.push_back(assessed.error().detail());
-                } else if (!chosen || rank(physical.type) < rank(chosen->physical.type)) {
+                } else if (!chosen || std::ranges::find(preference, physical.type) <
+                                          std::ranges::find(preference, chosen->physical.type)) {
                     chosen = std::move(*assessed);
                 }
             }
@@ -366,9 +363,10 @@ namespace rei::gpu::vk {
             if (!chosen) {
                 const auto joined =
                     reasons | std::views::join_with(std::string_view{"; "}) | std::ranges::to<std::string>();
-                return detail::failure(vk::error_code::no_suitable_device,
-                                       reasons.empty() ? "no Vulkan device was found"
-                                                       : "no suitable device: " + joined);
+                return std::unexpected(rei::error{
+                    vk::error_code::no_suitable_device,
+                    reasons.empty() ? "no Vulkan device was found" : "no suitable device: " + joined,
+                });
             }
         }
 
@@ -403,7 +401,7 @@ namespace rei::gpu::vk {
         if (const auto result =
                 context.table.vkCreateDevice(chosen->physical.handle, &info, nullptr, &state->handle);
             result != VK_SUCCESS) {
-            return detail::failure(result, "vkCreateDevice");
+            return std::unexpected(detail::vulkan_error(result, "vkCreateDevice"));
         }
 
         detail::load(state->table, state->handle);
@@ -426,7 +424,7 @@ namespace rei::gpu::vk {
         if (const auto result =
                 state->table.vkCreateSemaphore(state->handle, &timeline, nullptr, &state->queue.timeline);
             result != VK_SUCCESS) {
-            return detail::failure(result, "vkCreateSemaphore");
+            return std::unexpected(detail::vulkan_error(result, "vkCreateSemaphore"));
         }
 
         const auto functions = VmaVulkanFunctions{
@@ -444,7 +442,7 @@ namespace rei::gpu::vk {
             .vulkanApiVersion = VK_API_VERSION_1_4,
         };
         if (const auto result = vmaCreateAllocator(&allocator, &state->allocator); result != VK_SUCCESS) {
-            return detail::failure(result, "vmaCreateAllocator");
+            return std::unexpected(detail::vulkan_error(result, "vmaCreateAllocator"));
         }
 
         state->name(VK_OBJECT_TYPE_DEVICE, reinterpret_cast<std::uint64_t>(state->handle), options.name);
@@ -475,8 +473,10 @@ namespace rei::gpu::vk {
         auto& state = *m_state;
 
         if (ticket.queue != 0 || ticket.value > state.queue.submitted) {
-            return detail::failure(vk::error_code::invalid_argument,
-                                   std::format("wait for ticket {}, which was never issued", ticket.value));
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_argument,
+                std::format("wait for ticket {}, which was never issued", ticket.value),
+            });
         }
 
         const auto info = VkSemaphoreWaitInfo{
@@ -491,12 +491,14 @@ namespace rei::gpu::vk {
 
         const auto result = state.table.vkWaitSemaphores(state.handle, &info, nanoseconds);
         if (result == VK_TIMEOUT) {
-            return detail::failure(vk::error_code::timed_out,
-                                   std::format("ticket {} is not done after {}", ticket.value,
-                                               std::chrono::duration<double, std::milli>{*timeout}));
+            return std::unexpected(rei::error{
+                vk::error_code::timed_out,
+                std::format("ticket {} is not done after {}", ticket.value,
+                            std::chrono::duration<double, std::milli>{*timeout}),
+            });
         }
         if (result != VK_SUCCESS) {
-            return detail::failure(result, "vkWaitSemaphores");
+            return std::unexpected(detail::vulkan_error(result, "vkWaitSemaphores"));
         }
 
         state.collect();
@@ -512,7 +514,7 @@ namespace rei::gpu::vk {
         lock.unlock();
 
         if (result != VK_SUCCESS) {
-            return detail::failure(result, "vkDeviceWaitIdle");
+            return std::unexpected(detail::vulkan_error(result, "vkDeviceWaitIdle"));
         }
 
         state.collect();

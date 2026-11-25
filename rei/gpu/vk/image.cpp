@@ -27,48 +27,63 @@ namespace rei::gpu::vk {
             const auto usage = options.usage;
 
             if (options.format == vk::format::undefined) {
-                return detail::failure(vk::error_code::invalid_argument,
-                                       std::format("{}: format is undefined", what));
+                return std::unexpected(rei::error{
+                    vk::error_code::invalid_argument,
+                    std::format("{}: format is undefined", what),
+                });
             }
             if (std::to_underlying(usage) == 0) {
-                return detail::failure(vk::error_code::invalid_argument,
-                                       std::format("{}: usage is empty", what));
+                return std::unexpected(rei::error{
+                    vk::error_code::invalid_argument,
+                    std::format("{}: usage is empty", what),
+                });
             }
             if (extent.width == 0 || extent.height == 0 || extent.depth == 0) {
-                return detail::failure(vk::error_code::invalid_argument,
-                                       std::format("{}: extent {}x{}x{} has a side of 0", what, extent.width,
-                                                   extent.height, extent.depth));
+                return std::unexpected(rei::error{
+                    vk::error_code::invalid_argument,
+                    std::format("{}: extent {}x{}x{} has a side of 0", what, extent.width, extent.height,
+                                extent.depth),
+                });
             }
             if (options.array_layers == 0) {
-                return detail::failure(vk::error_code::invalid_argument,
-                                       std::format("{}: array_layers is 0", what));
+                return std::unexpected(rei::error{
+                    vk::error_code::invalid_argument,
+                    std::format("{}: array_layers is 0", what),
+                });
             }
             if (extent.depth > 1 && (options.array_layers > 1 || options.cube)) {
-                return detail::failure(
+                return std::unexpected(rei::error{
                     vk::error_code::invalid_argument,
-                    std::format("{}: a 3D image can't have array layers or be a cube", what));
+                    std::format("{}: a 3D image can't have array layers or be a cube", what),
+                });
             }
             if (options.cube && (extent.width != extent.height || options.array_layers % 6 != 0)) {
-                return detail::failure(
+                return std::unexpected(rei::error{
                     vk::error_code::invalid_argument,
-                    std::format("{}: a cube needs square sides and a multiple of 6 array layers", what));
+                    std::format("{}: a cube needs square sides and a multiple of 6 array layers", what),
+                });
             }
             if (options.mip_levels == 0 || options.mip_levels > vk::mip_count(extent)) {
-                return detail::failure(vk::error_code::invalid_argument,
-                                       std::format("{}: {} mip levels, and {}x{}x{} has room for 1 to {}",
-                                                   what, options.mip_levels, extent.width, extent.height,
-                                                   extent.depth, vk::mip_count(extent)));
+                return std::unexpected(rei::error{
+                    vk::error_code::invalid_argument,
+                    std::format("{}: {} mip levels, and {}x{}x{} has room for 1 to {}", what,
+                                options.mip_levels, extent.width, extent.height, extent.depth,
+                                vk::mip_count(extent)),
+                });
             }
             if (!std::has_single_bit(options.samples) || options.samples > 64) {
-                return detail::failure(vk::error_code::invalid_argument,
-                                       std::format("{}: {} samples, and that isn't a power of two up to 64",
-                                                   what, options.samples));
+                return std::unexpected(rei::error{
+                    vk::error_code::invalid_argument,
+                    std::format("{}: {} samples, and that isn't a power of two up to 64", what,
+                                options.samples),
+                });
             }
             if (options.samples > 1 && (options.mip_levels > 1 || extent.depth > 1 || options.cube)) {
-                return detail::failure(
+                return std::unexpected(rei::error{
                     vk::error_code::invalid_argument,
                     std::format("{}: a multisampled image has one mip level, two dimensions and no cube",
-                                what));
+                                what),
+                });
             }
 
             auto home = options.home;
@@ -86,8 +101,10 @@ namespace rei::gpu::vk {
                 } else if (vk::has(usage, vk::image_usage::transfer_dst)) {
                     home = vk::access::transfer_dst;
                 } else {
-                    return detail::failure(vk::error_code::invalid_argument,
-                                           std::format("{}: usage has no bit rei knows", what));
+                    return std::unexpected(rei::error{
+                        vk::error_code::invalid_argument,
+                        std::format("{}: usage has no bit rei knows", what),
+                    });
                 }
             }
 
@@ -129,9 +146,10 @@ namespace rei::gpu::vk {
                 break;
             }
             if (!problem.empty()) {
-                return detail::failure(
+                return std::unexpected(rei::error{
                     vk::error_code::invalid_argument,
-                    std::format("{}: home {} {}", what, detail::use_of(*home).name, problem));
+                    std::format("{}: home {} {}", what, detail::use_of(*home).name, problem),
+                });
             }
 
             return *home;
@@ -214,14 +232,15 @@ namespace rei::gpu::vk {
 
         if (mips == 0 || !detail::fits(source.mip_levels, options.first_mip, mips) || layers == 0 ||
             !detail::fits(source.array_layers, options.first_layer, layers)) {
-            return detail::failure(
+            return std::unexpected(rei::error{
                 vk::error_code::invalid_argument,
                 std::format(
                     "{}: {} mip levels from {} and {} array layers from {} don't fit in {}, which has {} "
                     "and {}",
                     detail::quoted(options.name, "image view"), mips, options.first_mip, layers,
                     options.first_layer, detail::quoted(source.name, "image"), source.mip_levels,
-                    source.array_layers));
+                    source.array_layers),
+            });
         }
 
         const auto range = VkImageSubresourceRange{
@@ -231,6 +250,7 @@ namespace rei::gpu::vk {
             .baseArrayLayer = options.first_layer,
             .layerCount = layers,
         };
+
         return image::_view(image.m_state, range, options.name, false);
     }
 
@@ -271,10 +291,11 @@ namespace rei::gpu::vk {
                 return vk::image_view{std::move(state)};
             }
 
-            return detail::failure(vk::error_code::invalid_argument,
-                                   std::format("{}: the usage of {} allows no view",
-                                               detail::quoted(state->name, "image view"),
-                                               detail::quoted(image->name, "image")));
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_argument,
+                std::format("{}: the usage of {} allows no view", detail::quoted(state->name, "image view"),
+                            detail::quoted(image->name, "image")),
+            });
         }
 
         auto type = VK_IMAGE_VIEW_TYPE_2D;
@@ -288,10 +309,11 @@ namespace rei::gpu::vk {
 
         if (type == VK_IMAGE_VIEW_TYPE_CUBE_ARRAY &&
             !context.features[std::to_underlying(vk::feature::image_cube_array)]) {
-            return detail::failure(
+            return std::unexpected(rei::error{
                 vk::error_code::missing_feature,
                 std::format("{}: a view of {} cube layers needs the feature image_cube_array",
-                            detail::quoted(state->name, "image view"), range.layerCount));
+                            detail::quoted(state->name, "image view"), range.layerCount),
+            });
         }
 
         const auto info = VkImageViewCreateInfo{
@@ -304,7 +326,7 @@ namespace rei::gpu::vk {
         if (const auto result =
                 context.table.vkCreateImageView(context.handle, &info, nullptr, &state->handle);
             result != VK_SUCCESS) {
-            return detail::failure(result, "vkCreateImageView");
+            return std::unexpected(detail::vulkan_error(result, "vkCreateImageView"));
         }
 
         context.name(VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<std::uint64_t>(state->handle), state->name);
@@ -374,23 +396,27 @@ namespace rei::gpu::vk {
             context.physical.handle, info.format, info.imageType, info.tiling, info.usage, info.flags,
             &limits);
         if (supported == VK_ERROR_FORMAT_NOT_SUPPORTED) {
-            return detail::failure(vk::error_code::invalid_argument,
-                                   std::format("{}: '{}' doesn't support {} images with this usage", what,
-                                               context.physical.name, detail::info_of(options.format).name));
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_argument,
+                std::format("{}: '{}' doesn't support {} images with this usage", what, context.physical.name,
+                            detail::info_of(options.format).name),
+            });
         }
         if (supported != VK_SUCCESS) {
-            return detail::failure(supported, "vkGetPhysicalDeviceImageFormatProperties");
+            return std::unexpected(
+                detail::vulkan_error(supported, "vkGetPhysicalDeviceImageFormatProperties"));
         }
         if (extent.width > limits.maxExtent.width || extent.height > limits.maxExtent.height ||
             extent.depth > limits.maxExtent.depth || options.mip_levels > limits.maxMipLevels ||
             options.array_layers > limits.maxArrayLayers || (limits.sampleCounts & options.samples) == 0) {
-            return detail::failure(
+            return std::unexpected(rei::error{
                 vk::error_code::invalid_argument,
                 std::format("{}: '{}' allows {} images of up to {}x{}x{}, {} mip levels, {} array layers and "
                             "sample counts {:#x}",
                             what, context.physical.name, detail::info_of(options.format).name,
                             limits.maxExtent.width, limits.maxExtent.height, limits.maxExtent.depth,
-                            limits.maxMipLevels, limits.maxArrayLayers, limits.sampleCounts));
+                            limits.maxMipLevels, limits.maxArrayLayers, limits.sampleCounts),
+            });
         }
 
         auto state = std::make_shared<image::state>();
@@ -400,8 +426,7 @@ namespace rei::gpu::vk {
         if (const auto result = vmaCreateImage(context.allocator, &info, &allocation, &state->handle,
                                                &state->allocation, nullptr);
             result != VK_SUCCESS) {
-            const auto error = detail::failure(result, "vmaCreateImage").error();
-            return detail::failure(error.code(), std::format("{}: {}", what, error.detail()));
+            return std::unexpected(detail::vulkan_error(result, "vmaCreateImage", what));
         }
 
         return image::_complete(options, *home, std::move(state));
@@ -458,14 +483,18 @@ namespace rei::gpu::vk {
         const auto what = detail::quoted(options.name, "sampler");
 
         if (options.anisotropy && !device.has(vk::feature::sampler_anisotropy)) {
-            return detail::failure(vk::error_code::missing_feature,
-                                   std::format("{}: anisotropy needs the feature sampler_anisotropy", what));
+            return std::unexpected(rei::error{
+                vk::error_code::missing_feature,
+                std::format("{}: anisotropy needs the feature sampler_anisotropy", what),
+            });
         }
         if (options.anisotropy &&
             (*options.anisotropy < 1.0f || *options.anisotropy > device.limits().maxSamplerAnisotropy)) {
-            return detail::failure(vk::error_code::invalid_argument,
-                                   std::format("{}: anisotropy {} is outside 1 to {}", what,
-                                               *options.anisotropy, device.limits().maxSamplerAnisotropy));
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_argument,
+                std::format("{}: anisotropy {} is outside 1 to {}", what, *options.anisotropy,
+                            device.limits().maxSamplerAnisotropy),
+            });
         }
 
         const auto address = static_cast<VkSamplerAddressMode>(options.address);
@@ -493,7 +522,7 @@ namespace rei::gpu::vk {
         auto& context = *state->device;
         if (const auto result = context.table.vkCreateSampler(context.handle, &info, nullptr, &state->handle);
             result != VK_SUCCESS) {
-            return detail::failure(result, "vkCreateSampler");
+            return std::unexpected(detail::vulkan_error(result, "vkCreateSampler"));
         }
 
         context.name(VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<std::uint64_t>(state->handle), options.name);

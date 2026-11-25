@@ -78,8 +78,10 @@ namespace rei::gpu::vk {
         rules.SetAllowOffsetTextureOperand(true);
         rules.SetAllowVulkan32BitBitwise(true);
         if (!validator.Validate(spirv.data(), spirv.size(), rules)) {
-            return detail::failure(vk::error_code::invalid_spirv,
-                                   std::format("the module is not valid SPIR-V: {}", problem));
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_spirv,
+                std::format("the module is not valid SPIR-V: {}", problem),
+            });
         }
 
         auto state = std::make_shared<shader::state>();
@@ -92,10 +94,11 @@ namespace rei::gpu::vk {
             &reflected, spvReflectDestroyShaderModule};
         if (result != SPV_REFLECT_RESULT_SUCCESS) {
             const auto index = static_cast<std::size_t>(result);
-            return detail::failure(
+            return std::unexpected(rei::error{
                 vk::error_code::invalid_spirv,
                 std::format("SPIRV-Reflect refused the module: {}",
-                            index < reflect_results.size() ? reflect_results[index] : "unknown result"));
+                            index < reflect_results.size() ? reflect_results[index] : "unknown result"),
+            });
         }
 
         const auto entry_points = std::span{reflected.entry_points, reflected.entry_point_count};
@@ -106,30 +109,36 @@ namespace rei::gpu::vk {
                            std::views::join_with(std::string_view{", "}) | std::ranges::to<std::string>();
 
         if (entry_points.empty()) {
-            return detail::failure(vk::error_code::invalid_spirv, "the module has no entry point");
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_spirv,
+                "the module has no entry point",
+            });
         }
         if (entry_point.empty() && entry_points.size() > 1) {
-            return detail::failure(
+            return std::unexpected(rei::error{
                 vk::error_code::invalid_argument,
-                std::format("the module has {} entry points ({}), name one", entry_points.size(), names));
+                std::format("the module has {} entry points ({}), name one", entry_points.size(), names),
+            });
         }
 
         const auto entry = entry_point.empty() ? entry_points.begin()
                                                : std::ranges::find(entry_points, entry_point, name_of);
         if (entry == entry_points.end()) {
-            return detail::failure(
+            return std::unexpected(rei::error{
                 vk::error_code::invalid_argument,
-                std::format("the module has no entry point '{}', it has {}", entry_point, names));
+                std::format("the module has no entry point '{}', it has {}", entry_point, names),
+            });
         }
 
         state->stage = static_cast<vk::shader_stage>(entry->shader_stage);
         state->entry_point = name_of(*entry);
         if (state->stage != vk::shader_stage::vertex && state->stage != vk::shader_stage::fragment &&
             state->stage != vk::shader_stage::compute) {
-            return detail::failure(
+            return std::unexpected(rei::error{
                 vk::error_code::invalid_argument,
                 std::format("entry point '{}' is neither a vertex, a fragment nor a compute shader",
-                            state->entry_point));
+                            state->entry_point),
+            });
         }
         if (state->stage == vk::shader_stage::compute) {
             state->local_size = {
@@ -191,13 +200,16 @@ namespace rei::gpu::vk {
         const auto bytes = std::vector<char>{std::istreambuf_iterator<char>{source}, {}};
 
         if (!source.is_open() || source.bad()) {
-            return detail::failure({errno != 0 ? errno : EIO, std::generic_category()},
-                                   "failed to read " + file.string());
+            return std::unexpected(rei::error{
+                {errno != 0 ? errno : EIO, std::generic_category()},
+                "failed to read " + file.string(),
+            });
         }
         if (bytes.size() % sizeof(std::uint32_t) != 0) {
-            return detail::failure(vk::error_code::invalid_spirv,
-                                   std::format("{}: {} bytes isn't a whole number of SPIR-V words",
-                                               file.string(), bytes.size()));
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_spirv,
+                std::format("{}: {} bytes isn't a whole number of SPIR-V words", file.string(), bytes.size()),
+            });
         }
 
         auto words = std::vector<std::uint32_t>(bytes.size() / sizeof(std::uint32_t));

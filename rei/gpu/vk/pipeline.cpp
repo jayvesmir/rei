@@ -38,30 +38,36 @@ namespace rei::gpu::vk {
         const auto what = detail::quoted(options.name, "compute pipeline");
 
         if (shader.stage != vk::shader_stage::compute) {
-            return detail::failure(
+            return std::unexpected(rei::error{
                 vk::error_code::invalid_argument,
-                std::format("{}: the entry point '{}' isn't a compute shader", what, shader.entry_point));
+                std::format("{}: the entry point '{}' isn't a compute shader", what, shader.entry_point),
+            });
         }
         if (options.push_constant_size % 4 != 0 ||
             options.push_constant_size > context.limits.maxPushConstantsSize) {
-            return detail::failure(
+            return std::unexpected(rei::error{
                 vk::error_code::invalid_argument,
                 std::format("{}: push_constant_size is {}, and it has to be a multiple of 4 "
                             "up to {}",
-                            what, options.push_constant_size, context.limits.maxPushConstantsSize));
+                            what, options.push_constant_size, context.limits.maxPushConstantsSize),
+            });
         }
         if (shader.push_constant_size > options.push_constant_size) {
-            return detail::failure(vk::error_code::layout_mismatch,
-                                   std::format("{}: the shader's push constants end at byte {}, and "
-                                               "push_constant_size is {}",
-                                               what, shader.push_constant_size, options.push_constant_size));
+            return std::unexpected(rei::error{
+                vk::error_code::layout_mismatch,
+                std::format("{}: the shader's push constants end at byte {}, and "
+                            "push_constant_size is {}",
+                            what, shader.push_constant_size, options.push_constant_size),
+            });
         }
 
         for (const auto& layout : options.sets) {
             if (layout.m_state->device != device.m_state) {
-                return detail::failure(vk::error_code::invalid_argument,
-                                       std::format("{}: {} belongs to another device", what,
-                                                   detail::quoted(layout.m_state->name, "set layout")));
+                return std::unexpected(rei::error{
+                    vk::error_code::invalid_argument,
+                    std::format("{}: {} belongs to another device", what,
+                                detail::quoted(layout.m_state->name, "set layout")),
+                });
             }
         }
 
@@ -76,36 +82,42 @@ namespace rei::gpu::vk {
         for (const auto& used : shader.bindings) {
             const auto where = std::format("set {} binding {} ('{}')", used.set, used.binding, used.name);
             if (used.set >= options.sets.size()) {
-                return detail::failure(
+                return std::unexpected(rei::error{
                     vk::error_code::layout_mismatch,
                     std::format("{}: the shader uses {}, and the pipeline has {} set layouts", what, where,
-                                options.sets.size()));
+                                options.sets.size()),
+                });
             }
 
             const auto& layout = *options.sets[used.set].m_state;
             const auto described = detail::quoted(layout.name, "set layout");
             const auto declared = std::ranges::find(layout.bindings, used.binding, &vk::set_binding::binding);
             if (declared == layout.bindings.end()) {
-                return detail::failure(
+                return std::unexpected(rei::error{
                     vk::error_code::layout_mismatch,
                     std::format("{}: the shader uses {} as a {}, and {} has no such binding", what, where,
-                                detail::type_name(used.type), described));
+                                detail::type_name(used.type), described),
+                });
             }
             if (declared->type != used.type) {
-                return detail::failure(vk::error_code::layout_mismatch,
-                                       std::format("{}: {} is a {} in the shader and a {} in {}", what, where,
-                                                   detail::type_name(used.type),
-                                                   detail::type_name(declared->type), described));
+                return std::unexpected(rei::error{
+                    vk::error_code::layout_mismatch,
+                    std::format("{}: {} is a {} in the shader and a {} in {}", what, where,
+                                detail::type_name(used.type), detail::type_name(declared->type), described),
+                });
             }
             if (used.count > declared->count) {
-                return detail::failure(vk::error_code::layout_mismatch,
-                                       std::format("{}: {} has {} elements in the shader and {} in {}", what,
-                                                   where, used.count, declared->count, described));
+                return std::unexpected(rei::error{
+                    vk::error_code::layout_mismatch,
+                    std::format("{}: {} has {} elements in the shader and {} in {}", what, where, used.count,
+                                declared->count, described),
+                });
             }
             if (!vk::has(declared->stages, vk::shader_stage::compute)) {
-                return detail::failure(
+                return std::unexpected(rei::error{
                     vk::error_code::layout_mismatch,
-                    std::format("{}: {} isn't visible to the compute stage in {}", what, where, described));
+                    std::format("{}: {} isn't visible to the compute stage in {}", what, where, described),
+                });
             }
 
             state->reads[used.set].push_back(used.binding);
@@ -131,8 +143,7 @@ namespace rei::gpu::vk {
         if (const auto result =
                 context.table.vkCreatePipelineLayout(context.handle, &layout_info, nullptr, &state->layout);
             result != VK_SUCCESS) {
-            const auto error = detail::failure(result, "vkCreatePipelineLayout").error();
-            return detail::failure(error.code(), std::format("{}: {}", what, error.detail()));
+            return std::unexpected(detail::vulkan_error(result, "vkCreatePipelineLayout", what));
         }
 
         const auto module = VkShaderModuleCreateInfo{
@@ -154,8 +165,7 @@ namespace rei::gpu::vk {
         if (const auto result = context.table.vkCreateComputePipelines(context.handle, VK_NULL_HANDLE, 1,
                                                                        &info, nullptr, &state->handle);
             result != VK_SUCCESS) {
-            const auto error = detail::failure(result, "vkCreateComputePipelines").error();
-            return detail::failure(error.code(), std::format("{}: {}", what, error.detail()));
+            return std::unexpected(detail::vulkan_error(result, "vkCreateComputePipelines", what));
         }
 
         context.name(VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<std::uint64_t>(state->handle), options.name);

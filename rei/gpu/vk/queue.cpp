@@ -46,9 +46,9 @@ namespace rei::gpu::vk {
         };
         if (const auto result = device.table.vkBeginCommandBuffer(state->pool.buffer, &begin);
             result != VK_SUCCESS) {
-            const auto error = detail::failure(result, "vkBeginCommandBuffer").error();
-            state->fail(error.code(),
-                        std::format("record {}: {}", detail::label(name, "commands"), error.detail()));
+            const auto error = detail::vulkan_error(
+                result, "vkBeginCommandBuffer", std::format("record {}", detail::label(name, "commands")));
+            state->fail(error.code(), error.detail());
             return vk::commands{std::move(state)};
         }
 
@@ -63,22 +63,28 @@ namespace rei::gpu::vk {
         auto& device = queue.device;
 
         if (!commands.m_state) {
-            return detail::failure(vk::error_code::invalid_argument,
-                                   "submit of commands that were already submitted or moved from");
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_argument,
+                "submit of commands that were already submitted or moved from",
+            });
         }
 
         auto& recorded = *commands.m_state;
         if (recorded.device.get() != &device) {
-            return detail::failure(vk::error_code::invalid_argument,
-                                   std::format("submit of {} to another device's queue",
-                                               detail::label(recorded.name, "commands")));
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_argument,
+                std::format("submit of {} to another device's queue",
+                            detail::label(recorded.name, "commands")),
+            });
         }
 
         for (const auto& ticket : after) {
             if (ticket.queue != 0 || ticket.value > queue.submitted) {
-                return detail::failure(vk::error_code::invalid_argument,
-                                       std::format("submit of {} waits for ticket {}, which was never issued",
-                                                   detail::label(recorded.name, "commands"), ticket.value));
+                return std::unexpected(rei::error{
+                    vk::error_code::invalid_argument,
+                    std::format("submit of {} waits for ticket {}, which was never issued",
+                                detail::label(recorded.name, "commands"), ticket.value),
+                });
             }
         }
 
@@ -96,10 +102,10 @@ namespace rei::gpu::vk {
 
             if (const auto result = device.table.vkEndCommandBuffer(recorded.pool.buffer);
                 result != VK_SUCCESS) {
-                const auto error = detail::failure(result, "vkEndCommandBuffer").error();
-                recorded.fail(error.code(),
-                              std::format("submit of {}: {}", detail::label(recorded.name, "commands"),
-                                          error.detail()));
+                const auto error = detail::vulkan_error(
+                    result, "vkEndCommandBuffer",
+                    std::format("submit of {}", detail::label(recorded.name, "commands")));
+                recorded.fail(error.code(), error.detail());
             }
         }
         if (recorded.failure) {
@@ -173,11 +179,11 @@ namespace rei::gpu::vk {
 
             if (const auto result = device.table.vkBeginCommandBuffer(prefix->buffer, &begin);
                 result != VK_SUCCESS) {
-                return abandon(detail::failure(result, "vkBeginCommandBuffer").error());
+                return abandon(detail::vulkan_error(result, "vkBeginCommandBuffer"));
             }
             device.table.vkCmdPipelineBarrier2(prefix->buffer, &dependency);
             if (const auto result = device.table.vkEndCommandBuffer(prefix->buffer); result != VK_SUCCESS) {
-                return abandon(detail::failure(result, "vkEndCommandBuffer").error());
+                return abandon(detail::vulkan_error(result, "vkEndCommandBuffer"));
             }
 
             buffers.push_back(
@@ -216,7 +222,7 @@ namespace rei::gpu::vk {
 
         if (const auto result = device.table.vkQueueSubmit2(queue.handle, 1, &submit, VK_NULL_HANDLE);
             result != VK_SUCCESS) {
-            return abandon(detail::failure(result, "vkQueueSubmit2").error());
+            return abandon(detail::vulkan_error(result, "vkQueueSubmit2"));
         }
 
         queue.submitted = value;
