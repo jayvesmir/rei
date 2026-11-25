@@ -14,10 +14,6 @@
 
 namespace rei::gpu::vk {
     namespace detail {
-        auto info_of(vk::feature feature) noexcept -> const detail::feature_info& {
-            return detail::feature_table[std::to_underlying(feature)];
-        }
-
         feature_chain::feature_chain() {
             const auto root =
                 VkPhysicalDeviceFeatures2{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
@@ -79,7 +75,7 @@ namespace rei::gpu::vk {
     } // namespace detail
 
     auto to_string(vk::feature feature) noexcept -> std::string_view {
-        return detail::info_of(feature).name;
+        return detail::feature_table[std::to_underlying(feature)].name;
     }
 
     auto to_feature(std::string_view name) noexcept -> std::optional<vk::feature> {

@@ -114,6 +114,10 @@ namespace rei::gpu::vk {
             return items;
         }
 
+        inline auto fits(std::uint64_t size, std::uint64_t offset, std::uint64_t count) noexcept -> bool {
+            return offset <= size && count <= size - offset;
+        }
+
         inline auto has_extension(std::span<const VkExtensionProperties> extensions, std::string_view name)
             -> bool {
             return std::ranges::contains(extensions, name,
@@ -208,7 +212,6 @@ namespace rei::gpu::vk {
         auto operator=(const state& other) -> state& = delete;
         ~state();
 
-        auto begin_commands() -> std::uint64_t;
         auto end_commands(std::uint64_t serial, std::optional<std::uint64_t> ticket,
                           std::vector<detail::retired> items) -> void;
         auto take_pool() -> std::expected<detail::command_pool, rei::error>;
@@ -218,13 +221,15 @@ namespace rei::gpu::vk {
         auto release(std::vector<detail::retired> items) -> void;
 
         auto name(VkObjectType type, std::uint64_t object, std::string_view name) const -> void;
-        auto emit(std::string_view text) const -> void;
 
         template <typename... Args>
         auto trace(std::format_string<Args...> format, Args&&... args) const -> void {
-            if (tracing) {
-                emit(std::format(format, std::forward<Args>(args)...));
+            if (!tracing) {
+                return;
             }
+
+            const auto text = std::format(format, std::forward<Args>(args)...);
+            instance.m_state->on_message({.severity = vk::severity::trace, .id = {}, .text = text});
         }
     };
 
@@ -262,6 +267,7 @@ namespace rei::gpu::vk {
 
         [[nodiscard]] auto range() const noexcept -> VkImageSubresourceRange;
         [[nodiscard]] auto extent_of(std::uint32_t mip) const noexcept -> vk::extent;
+        [[nodiscard]] auto label(const VkImageSubresourceRange& range) const -> std::string;
     };
 
     struct image_view::state {
@@ -301,8 +307,6 @@ namespace rei::gpu::vk {
         auto operator=(const state& other) -> state& = delete;
         ~state();
 
-        [[nodiscard]] auto label() const -> std::string;
-
         auto fail(std::error_code code, std::string detail) -> void;
 
         template <typename StateType>
@@ -322,8 +326,8 @@ namespace rei::gpu::vk {
         auto trace(std::string_view workflow, std::format_string<Args...> format, Args&&... args) const
             -> void {
             if (device->tracing) {
-                device->emit(std::format("{}: {}: {}", label(), workflow,
-                                         std::format(format, std::forward<Args>(args)...)));
+                device->trace("{}: {}: {}", detail::label(name, "commands"), workflow,
+                              std::format(format, std::forward<Args>(args)...));
             }
         }
 
@@ -332,7 +336,6 @@ namespace rei::gpu::vk {
 
         auto add(std::string_view workflow, detail::barrier barrier) -> void;
         auto flush(std::string_view workflow) -> void;
-        auto finish() -> void;
 
         auto enter(std::string_view workflow, const image::state& image, const VkImageSubresourceRange& range,
                    vk::access needed, bool discard) -> void;

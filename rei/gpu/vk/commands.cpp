@@ -10,7 +10,6 @@
 #include <span>
 #include <string>
 #include <string_view>
-#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -25,58 +24,12 @@
 
 namespace rei::gpu::vk {
     namespace {
-        auto fits(std::uint64_t size, std::uint64_t offset, std::uint64_t count) noexcept -> bool {
-            return offset <= size && count <= size - offset;
-        }
-
-        auto overlaps(std::uint32_t first, std::uint32_t count, std::uint32_t other_first,
-                      std::uint32_t other_count) noexcept -> bool {
-            return first < other_first + other_count && other_first < first + count;
-        }
-
-        auto same(const VkImageSubresourceRange& left, const VkImageSubresourceRange& right) noexcept
-            -> bool {
-            return left.aspectMask == right.aspectMask && left.baseMipLevel == right.baseMipLevel &&
-                   left.levelCount == right.levelCount && left.baseArrayLayer == right.baseArrayLayer &&
-                   left.layerCount == right.layerCount;
-        }
-
-        auto overlapping(const detail::barrier& left, const detail::barrier& right) noexcept -> bool {
-            if (left.buffer != VK_NULL_HANDLE || right.buffer != VK_NULL_HANDLE) {
-                return left.buffer == right.buffer;
-            }
-
-            return left.image == right.image && (left.range.aspectMask & right.range.aspectMask) != 0 &&
-                   overlaps(left.range.baseMipLevel, left.range.levelCount, right.range.baseMipLevel,
-                            right.range.levelCount) &&
-                   overlaps(left.range.baseArrayLayer, left.range.layerCount, right.range.baseArrayLayer,
-                            right.range.layerCount);
-        }
-
-        auto part(std::string_view singular, std::string_view plural, std::uint32_t first,
-                  std::uint32_t count, std::uint32_t total) -> std::string {
-            if (total == 1 || count == total) {
-                return {};
-            }
-            if (count == 1) {
-                return std::format(" {} {}", singular, first);
-            }
-
-            return std::format(" {} {}-{}", plural, first, first + count - 1);
-        }
-
-        auto describe(const detail::barrier& barrier) -> std::string {
-            return std::format("{}: {} → {}{}{}", barrier.target, barrier.from.name, barrier.to.name,
-                               barrier.discard ? ", discard" : "", barrier.folded ? " (folded)" : "");
-        }
-
         auto level_size(const detail::format_info& format, vk::extent extent) noexcept -> std::uint64_t {
-            const auto blocks = [](std::uint32_t texels, std::uint32_t block) -> std::uint64_t {
-                return (std::uint64_t{texels} + block - 1) / block;
-            };
+            const auto columns = (std::uint64_t{extent.width} + format.block.width - 1) / format.block.width;
+            const auto rows = (std::uint64_t{extent.height} + format.block.height - 1) / format.block.height;
+            const auto slices = (std::uint64_t{extent.depth} + format.block.depth - 1) / format.block.depth;
 
-            return blocks(extent.width, format.block.width) * blocks(extent.height, format.block.height) *
-                   blocks(extent.depth, format.block.depth) * format.block_size;
+            return columns * rows * slices * format.block_size;
         }
 
         auto buffer_use(vk::access access) noexcept -> std::optional<detail::use> {
@@ -111,11 +64,8 @@ namespace rei::gpu::vk {
         if (pool.pool != VK_NULL_HANDLE) {
             items.push_back({.pool = pool});
         }
-        device->end_commands(serial, std::nullopt, std::move(items));
-    }
 
-    auto commands::state::label() const -> std::string {
-        return detail::label(name, "commands");
+        device->end_commands(serial, std::nullopt, std::move(items));
     }
 
     auto commands::state::fail(std::error_code code, std::string detail) -> void {
@@ -146,7 +96,11 @@ namespace rei::gpu::vk {
     auto commands::state::add(std::string_view workflow, detail::barrier barrier) -> void {
         const auto folding = std::ranges::find_if(pending, [&](const detail::barrier& other) -> bool {
             return other.buffer == barrier.buffer && other.image == barrier.image &&
-                   same(other.range, barrier.range) && other.to == barrier.from;
+                   other.range.aspectMask == barrier.range.aspectMask &&
+                   other.range.baseMipLevel == barrier.range.baseMipLevel &&
+                   other.range.levelCount == barrier.range.levelCount &&
+                   other.range.baseArrayLayer == barrier.range.baseArrayLayer &&
+                   other.range.layerCount == barrier.range.layerCount && other.to == barrier.from;
         });
         if (folding != pending.end()) {
             folding->to = barrier.to;
@@ -155,10 +109,23 @@ namespace rei::gpu::vk {
             return;
         }
 
-        if (std::ranges::any_of(
-                pending, [&](const detail::barrier& other) -> bool { return overlapping(other, barrier); })) {
+        const auto overlapping = std::ranges::any_of(pending, [&](const detail::barrier& other) -> bool {
+            if (other.buffer != VK_NULL_HANDLE || barrier.buffer != VK_NULL_HANDLE) {
+                return other.buffer == barrier.buffer;
+            }
+
+            const auto& left = other.range;
+            const auto& right = barrier.range;
+            return other.image == barrier.image && (left.aspectMask & right.aspectMask) != 0 &&
+                   left.baseMipLevel < right.baseMipLevel + right.levelCount &&
+                   right.baseMipLevel < left.baseMipLevel + left.levelCount &&
+                   left.baseArrayLayer < right.baseArrayLayer + right.layerCount &&
+                   right.baseArrayLayer < left.baseArrayLayer + left.layerCount;
+        });
+        if (overlapping) {
             flush(workflow);
         }
+
         pending.push_back(std::move(barrier));
     }
 
@@ -211,20 +178,14 @@ namespace rei::gpu::vk {
 
         if (device->tracing) {
             trace(workflow, "barrier {}",
-                  pending | std::views::transform(describe) | std::views::join_with(std::string_view{"; "}) |
+                  pending | std::views::transform([](const detail::barrier& barrier) -> std::string {
+                      return std::format("{}: {} → {}{}{}", barrier.target, barrier.from.name,
+                                         barrier.to.name, barrier.discard ? ", discard" : "",
+                                         barrier.folded ? " (folded)" : "");
+                  }) | std::views::join_with(std::string_view{"; "}) |
                       std::ranges::to<std::string>());
         }
         pending.clear();
-    }
-
-    auto commands::state::finish() -> void {
-        if (pending.empty()) {
-            return;
-        }
-
-        begin("end");
-        flush("end");
-        end();
     }
 
     auto commands::state::enter(std::string_view workflow, const image::state& image,
@@ -234,17 +195,14 @@ namespace rei::gpu::vk {
             return;
         }
 
-        add(workflow,
-            {
-                .target = detail::label(image.name, "image") +
-                          part("mip", "mips", range.baseMipLevel, range.levelCount, image.mip_levels) +
-                          part("layer", "layers", range.baseArrayLayer, range.layerCount, image.array_layers),
-                .image = image.handle,
-                .range = range,
-                .from = detail::use_of(image.home),
-                .to = detail::use_of(needed),
-                .discard = discard,
-            });
+        add(workflow, {
+                          .target = image.label(range),
+                          .image = image.handle,
+                          .range = range,
+                          .from = detail::use_of(image.home),
+                          .to = detail::use_of(needed),
+                          .discard = discard,
+                      });
     }
 
     auto commands::state::leave(std::string_view workflow, const image::state& image,
@@ -253,16 +211,13 @@ namespace rei::gpu::vk {
             return;
         }
 
-        add(workflow,
-            {
-                .target = detail::label(image.name, "image") +
-                          part("mip", "mips", range.baseMipLevel, range.levelCount, image.mip_levels) +
-                          part("layer", "layers", range.baseArrayLayer, range.layerCount, image.array_layers),
-                .image = image.handle,
-                .range = range,
-                .from = detail::use_of(needed),
-                .to = detail::use_of(image.home),
-            });
+        add(workflow, {
+                          .target = image.label(range),
+                          .image = image.handle,
+                          .range = range,
+                          .from = detail::use_of(needed),
+                          .to = detail::use_of(image.home),
+                      });
     }
 
     auto commands::state::enter(std::string_view workflow, const buffer::state& buffer) -> void {
@@ -320,6 +275,7 @@ namespace rei::gpu::vk {
         device->name(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<std::uint64_t>(staged.buffer),
                      std::format("staging for {}", workflow));
         trace(workflow, "staging buffer, {} bytes", data.size());
+
         return staged.buffer;
     }
 
@@ -347,7 +303,7 @@ namespace rei::gpu::vk {
                       std::format("{}: its usage lacks transfer_dst", call));
             return;
         }
-        if (!fits(target.size, offset, data.size())) {
+        if (!detail::fits(target.size, offset, data.size())) {
             self.fail(vk::error_code::invalid_argument,
                       std::format("{}: {} bytes at offset {} go past its end at {}", call, data.size(),
                                   offset, target.size));
@@ -455,10 +411,7 @@ namespace rei::gpu::vk {
         };
         self.device->table.vkCmdCopyBufferToImage(self.pool.buffer, *staged, target.handle,
                                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
-        self.trace(workflow, "copy staging → {}",
-                   detail::label(target.name, "image") +
-                       part("mip", "mips", region.mip, 1, target.mip_levels) +
-                       part("layer", "layers", region.layer, 1, target.array_layers));
+        self.trace(workflow, "copy staging → {}", target.label(range));
 
         self.leave(workflow, target, range, vk::access::transfer_dst, true);
         self.end();
@@ -486,8 +439,8 @@ namespace rei::gpu::vk {
                                   call));
             return;
         }
-        if (!fits(origin.size, region.source_offset, size) ||
-            !fits(target.size, region.destination_offset, size)) {
+        if (!detail::fits(origin.size, region.source_offset, size) ||
+            !detail::fits(target.size, region.destination_offset, size)) {
             self.fail(vk::error_code::invalid_argument,
                       std::format("{}: {} bytes from offset {} to offset {} don't fit in {} and {} bytes",
                                   call, size, region.source_offset, region.destination_offset, origin.size,
@@ -560,7 +513,7 @@ namespace rei::gpu::vk {
         const auto extent = target.extent_of(region.mip);
         const auto size = level_size(format, extent);
         const auto alignment = format.aspects == VK_IMAGE_ASPECT_COLOR_BIT ? format.block_size : 4U;
-        if (region.buffer_offset % alignment != 0 || !fits(origin.size, region.buffer_offset, size)) {
+        if (region.buffer_offset % alignment != 0 || !detail::fits(origin.size, region.buffer_offset, size)) {
             self.fail(
                 vk::error_code::invalid_argument,
                 std::format("{}: mip {} needs {} bytes at an offset that is a multiple of {}, and the buffer "
@@ -640,7 +593,7 @@ namespace rei::gpu::vk {
         const auto extent = origin.extent_of(region.mip);
         const auto size = level_size(format, extent);
         const auto alignment = format.aspects == VK_IMAGE_ASPECT_COLOR_BIT ? format.block_size : 4U;
-        if (region.buffer_offset % alignment != 0 || !fits(target.size, region.buffer_offset, size)) {
+        if (region.buffer_offset % alignment != 0 || !detail::fits(target.size, region.buffer_offset, size)) {
             self.fail(
                 vk::error_code::invalid_argument,
                 std::format("{}: mip {} needs {} bytes at an offset that is a multiple of {}, and the buffer "
@@ -818,11 +771,7 @@ namespace rei::gpu::vk {
             }
 
             self.add("barrier", {
-                                    .target = detail::label(image->name, "image") +
-                                              part("mip", "mips", view.range.baseMipLevel,
-                                                   view.range.levelCount, image->mip_levels) +
-                                              part("layer", "layers", view.range.baseArrayLayer,
-                                                   view.range.layerCount, image->array_layers),
+                                    .target = image->label(view.range),
                                     .image = image->handle,
                                     .range = view.range,
                                     .from = detail::use_of(transition.from),

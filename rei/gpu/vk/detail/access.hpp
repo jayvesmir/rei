@@ -92,30 +92,40 @@ namespace rei::gpu::vk::detail {
     [[nodiscard]] constexpr auto home_of(vk::buffer_usage usage, vk::host_access host) noexcept
         -> detail::use {
         auto home = detail::use{.name = "home"};
-        const auto add = [&](bool used, VkPipelineStageFlags2 stages, VkAccessFlags2 access) -> void {
-            if (used) {
-                home.stages |= stages;
-                home.access |= access;
-            }
-        };
 
-        add(vk::has(usage, vk::buffer_usage::transfer_src), VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-            VK_ACCESS_2_TRANSFER_READ_BIT);
-        add(vk::has(usage, vk::buffer_usage::transfer_dst), VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-            VK_ACCESS_2_TRANSFER_WRITE_BIT);
-        add(vk::has(usage, vk::buffer_usage::uniform_buffer), detail::shader_stages,
-            VK_ACCESS_2_UNIFORM_READ_BIT);
-        add(vk::has(usage, vk::buffer_usage::storage_buffer) ||
-                vk::has(usage, vk::buffer_usage::shader_device_address),
-            detail::shader_stages,
-            VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
-        add(vk::has(usage, vk::buffer_usage::index_buffer), VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT,
-            VK_ACCESS_2_INDEX_READ_BIT);
-        add(vk::has(usage, vk::buffer_usage::vertex_buffer), VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT,
-            VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT);
-        add(vk::has(usage, vk::buffer_usage::indirect_buffer), VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
-            VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
-        add(host == vk::host_access::read_write, VK_PIPELINE_STAGE_2_HOST_BIT, VK_ACCESS_2_HOST_READ_BIT);
+        if (vk::has(usage, vk::buffer_usage::transfer_src)) {
+            home.stages |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            home.access |= VK_ACCESS_2_TRANSFER_READ_BIT;
+        }
+        if (vk::has(usage, vk::buffer_usage::transfer_dst)) {
+            home.stages |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            home.access |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        }
+        if (vk::has(usage, vk::buffer_usage::uniform_buffer)) {
+            home.stages |= detail::shader_stages;
+            home.access |= VK_ACCESS_2_UNIFORM_READ_BIT;
+        }
+        if (vk::has(usage, vk::buffer_usage::storage_buffer) ||
+            vk::has(usage, vk::buffer_usage::shader_device_address)) {
+            home.stages |= detail::shader_stages;
+            home.access |= VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        }
+        if (vk::has(usage, vk::buffer_usage::index_buffer)) {
+            home.stages |= VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
+            home.access |= VK_ACCESS_2_INDEX_READ_BIT;
+        }
+        if (vk::has(usage, vk::buffer_usage::vertex_buffer)) {
+            home.stages |= VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
+            home.access |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+        }
+        if (vk::has(usage, vk::buffer_usage::indirect_buffer)) {
+            home.stages |= VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+            home.access |= VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+        }
+        if (host == vk::host_access::read_write) {
+            home.stages |= VK_PIPELINE_STAGE_2_HOST_BIT;
+            home.access |= VK_ACCESS_2_HOST_READ_BIT;
+        }
 
         return home;
     }

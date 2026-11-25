@@ -38,10 +38,6 @@ namespace rei::gpu::vk {
 
             return {};
         }
-
-        auto fits(std::uint64_t size, std::uint64_t offset, std::uint64_t count) noexcept -> bool {
-            return offset <= size && count <= size - offset;
-        }
     } // namespace
 
     buffer::state::~state() {
@@ -110,6 +106,7 @@ namespace rei::gpu::vk {
 
         state->device->name(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<std::uint64_t>(state->handle),
                             options.name);
+
         return vk::buffer{std::move(state)};
     }
 
@@ -142,6 +139,7 @@ namespace rei::gpu::vk {
         }
 
         state->device->name(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<std::uint64_t>(handle), options.name);
+
         return vk::buffer{std::move(state)};
     }
 
@@ -154,7 +152,7 @@ namespace rei::gpu::vk {
             return detail::failure(vk::error_code::invalid_argument,
                                    std::format("{}: it has no host access", what));
         }
-        if (!fits(state.size, offset, data.size())) {
+        if (!detail::fits(state.size, offset, data.size())) {
             return detail::failure(vk::error_code::invalid_argument,
                                    std::format("{}: {} bytes at offset {} go past its end at {}", what,
                                                data.size(), offset, state.size));
@@ -180,7 +178,7 @@ namespace rei::gpu::vk {
             return detail::failure(vk::error_code::invalid_argument,
                                    std::format("{}: reading needs host_access::read_write", what));
         }
-        if (!fits(state.size, offset, data.size())) {
+        if (!detail::fits(state.size, offset, data.size())) {
             return detail::failure(vk::error_code::invalid_argument,
                                    std::format("{}: {} bytes at offset {} go past its end at {}", what,
                                                data.size(), offset, state.size));
@@ -193,6 +191,7 @@ namespace rei::gpu::vk {
         }
 
         std::ranges::copy(state.mapped.subspan(offset, data.size()), data.begin());
+
         return {};
     }
 

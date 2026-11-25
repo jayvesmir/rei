@@ -23,13 +23,19 @@
 namespace rei::gpu::vk {
     auto queue::record(std::string_view name) const -> vk::commands {
         auto& device = m_state->device;
+
+        auto lock = std::unique_lock{device.mutex};
+        const auto serial = device.next_serial++;
+        device.unfinished.emplace(serial, 0);
+        lock.unlock();
+
         auto state = std::make_unique<commands::state>(std::shared_ptr<device::state>{m_state, &device},
-                                                       device.begin_commands(), std::string{name});
+                                                       serial, std::string{name});
 
         auto pool = device.take_pool();
         if (!pool) {
             state->fail(pool.error().code(),
-                        std::format("record {}: {}", state->label(), pool.error().detail()));
+                        std::format("record {}: {}", detail::label(name, "commands"), pool.error().detail()));
             return vk::commands{std::move(state)};
         }
         state->pool = *pool;
@@ -41,11 +47,13 @@ namespace rei::gpu::vk {
         if (const auto result = device.table.vkBeginCommandBuffer(state->pool.buffer, &begin);
             result != VK_SUCCESS) {
             const auto error = detail::failure(result, "vkBeginCommandBuffer").error();
-            state->fail(error.code(), std::format("record {}: {}", state->label(), error.detail()));
+            state->fail(error.code(),
+                        std::format("record {}: {}", detail::label(name, "commands"), error.detail()));
             return vk::commands{std::move(state)};
         }
 
         device.name(VK_OBJECT_TYPE_COMMAND_BUFFER, reinterpret_cast<std::uint64_t>(state->pool.buffer), name);
+
         return vk::commands{std::move(state)};
     }
 
@@ -62,26 +70,31 @@ namespace rei::gpu::vk {
         auto& recorded = *commands.m_state;
         if (recorded.device.get() != &device) {
             return detail::failure(vk::error_code::invalid_argument,
-                                   std::format("submit of {} to another device's queue", recorded.label()));
+                                   std::format("submit of {} to another device's queue",
+                                               detail::label(recorded.name, "commands")));
         }
 
         for (const auto& ticket : after) {
             if (ticket.queue != 0 || ticket.value > queue.submitted) {
                 return detail::failure(vk::error_code::invalid_argument,
                                        std::format("submit of {} waits for ticket {}, which was never issued",
-                                                   recorded.label(), ticket.value));
+                                                   detail::label(recorded.name, "commands"), ticket.value));
             }
         }
 
         if (!recorded.failure) {
-            recorded.finish();
-        }
-        if (!recorded.failure) {
+            if (!recorded.pending.empty()) {
+                recorded.begin("end");
+                recorded.flush("end");
+                recorded.end();
+            }
+
             if (const auto result = device.table.vkEndCommandBuffer(recorded.pool.buffer);
                 result != VK_SUCCESS) {
                 const auto error = detail::failure(result, "vkEndCommandBuffer").error();
                 recorded.fail(error.code(),
-                              std::format("submit of {}: {}", recorded.label(), error.detail()));
+                              std::format("submit of {}: {}", detail::label(recorded.name, "commands"),
+                                          error.detail()));
             }
         }
         if (recorded.failure) {
@@ -213,7 +226,7 @@ namespace rei::gpu::vk {
                 }) |
                 std::views::join_with(std::string_view{", "}) | std::ranges::to<std::string>();
 
-            device.trace("submit {}: {}ticket {}", recorded.label(),
+            device.trace("submit {}: {}ticket {}", detail::label(recorded.name, "commands"),
                          first_uses.empty() ? "" : std::format("first use: {}; ", first_uses), value);
         }
 

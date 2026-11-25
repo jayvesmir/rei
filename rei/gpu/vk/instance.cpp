@@ -34,121 +34,46 @@ namespace rei::gpu::vk {
             "syncval_load_op_after_store_op_validation",
         });
 
-        auto extensions_of(std::string_view layer)
-            -> std::expected<std::vector<VkExtensionProperties>, rei::error> {
-            return detail::enumerate<VkExtensionProperties>(
-                "vkEnumerateInstanceExtensionProperties",
-                [&](std::uint32_t* count, VkExtensionProperties* items) -> VkResult {
-                    return volk::vkEnumerateInstanceExtensionProperties(
-                        layer.empty() ? nullptr : layer.data(), count, items);
-                });
-        }
-
-        auto available_extensions(bool validating)
-            -> std::expected<std::vector<VkExtensionProperties>, rei::error> {
-            auto available = extensions_of({});
-            if (!available || !validating) {
-                return available;
-            }
-
-            const auto layers = detail::enumerate<VkLayerProperties>(
-                "vkEnumerateInstanceLayerProperties",
-                [](std::uint32_t* count, VkLayerProperties* items) -> VkResult {
-                    return volk::vkEnumerateInstanceLayerProperties(count, items);
-                });
-            if (!layers) {
-                return std::unexpected(layers.error());
-            }
-
-            if (!std::ranges::contains(*layers, validation_layer,
-                                       [](const VkLayerProperties& layer) -> std::string_view {
-                                           return std::string_view{layer.layerName};
-                                       })) {
-                return detail::failure(vk::error_code::missing_layer,
-                                       std::format("the layer {} is not installed", validation_layer));
-            }
-
-            const auto provided = extensions_of(validation_layer);
-            if (!provided) {
-                return std::unexpected(provided.error());
-            }
-
-            available->append_range(*provided);
-            return available;
-        }
-
-        auto enumerate_devices(const volk::VolkInstanceTable& table, VkInstance instance)
-            -> std::expected<std::vector<vk::physical_device>, rei::error> {
-            const auto describe = [&](VkPhysicalDevice handle) -> vk::physical_device {
-                auto properties = VkPhysicalDeviceProperties{};
-                table.vkGetPhysicalDeviceProperties(handle, &properties);
-
-                return {
-                    .name = properties.deviceName,
-                    .type = static_cast<vk::device_type>(properties.deviceType),
-                    .handle = handle,
-                };
-            };
-
-            const auto handles = detail::enumerate<VkPhysicalDevice>(
-                "vkEnumeratePhysicalDevices", [&](std::uint32_t* count, VkPhysicalDevice* items) -> VkResult {
-                    return table.vkEnumeratePhysicalDevices(instance, count, items);
-                });
-            if (!handles) {
-                return std::unexpected(handles.error());
-            }
-
-            return *handles | std::views::transform(describe) | std::ranges::to<std::vector>();
-        }
-
-        auto severity_name(vk::severity severity) noexcept -> std::string_view {
-            switch (severity) {
-            case vk::severity::trace:
-                return "trace";
-            case vk::severity::verbose:
-                return "verbose";
-            case vk::severity::info:
-                return "info";
-            case vk::severity::warning:
-                return "warning";
-            case vk::severity::error:
-                return "error";
-            }
-
-            return "message";
-        }
-
         auto print_message(const vk::message& message) -> void {
-            std::println(stderr, "vulkan {}: {}{}{}", severity_name(message.severity), message.id,
-                         message.id.empty() ? "" : ": ", message.text);
-        }
-
-        auto tracing_requested() -> bool {
-            const auto* const variable = std::getenv("REI_GPU_VK_TRACE");
-            return variable != nullptr && std::string_view{variable} == "1";
-        }
-
-        auto to_severity(VkDebugUtilsMessageSeverityFlagBitsEXT severity) noexcept -> vk::severity {
-            if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-                return vk::severity::error;
+            auto severity = std::string_view{"message"};
+            switch (message.severity) {
+            case vk::severity::trace:
+                severity = "trace";
+                break;
+            case vk::severity::verbose:
+                severity = "verbose";
+                break;
+            case vk::severity::info:
+                severity = "info";
+                break;
+            case vk::severity::warning:
+                severity = "warning";
+                break;
+            case vk::severity::error:
+                severity = "error";
+                break;
             }
-            if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-                return vk::severity::warning;
-            }
-            if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
-                return vk::severity::info;
-            }
 
-            return vk::severity::verbose;
+            std::println(stderr, "vulkan {}: {}{}{}", severity, message.id, message.id.empty() ? "" : ": ",
+                         message.text);
         }
 
         VKAPI_ATTR auto VKAPI_CALL forward_message(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
                                                    [[maybe_unused]] VkDebugUtilsMessageTypeFlagsEXT types,
                                                    const VkDebugUtilsMessengerCallbackDataEXT* data,
                                                    void* user) -> VkBool32 {
+            auto converted = vk::severity::verbose;
+            if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+                converted = vk::severity::error;
+            } else if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+                converted = vk::severity::warning;
+            } else if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
+                converted = vk::severity::info;
+            }
+
             const auto& on_message = *static_cast<const std::function<void(const vk::message&)>*>(user);
             on_message({
-                .severity = to_severity(severity),
+                .severity = converted,
                 .id = data->pMessageIdName != nullptr ? data->pMessageIdName : "",
                 .text = data->pMessage,
             });
@@ -179,10 +104,45 @@ namespace rei::gpu::vk {
         const auto validating = options.validation != vk::validation::none;
         const auto synchronizing = options.validation == vk::validation::full;
 
-        const auto available = available_extensions(validating);
+        auto available = detail::enumerate<VkExtensionProperties>(
+            "vkEnumerateInstanceExtensionProperties",
+            [](std::uint32_t* count, VkExtensionProperties* items) -> VkResult {
+                return volk::vkEnumerateInstanceExtensionProperties(nullptr, count, items);
+            });
         if (!available) {
             return std::unexpected(available.error());
         }
+
+        if (validating) {
+            const auto layers = detail::enumerate<VkLayerProperties>(
+                "vkEnumerateInstanceLayerProperties",
+                [](std::uint32_t* count, VkLayerProperties* items) -> VkResult {
+                    return volk::vkEnumerateInstanceLayerProperties(count, items);
+                });
+            if (!layers) {
+                return std::unexpected(layers.error());
+            }
+            if (!std::ranges::contains(*layers, validation_layer,
+                                       [](const VkLayerProperties& layer) -> std::string_view {
+                                           return std::string_view{layer.layerName};
+                                       })) {
+                return detail::failure(vk::error_code::missing_layer,
+                                       std::format("the layer {} is not installed", validation_layer));
+            }
+
+            const auto provided = detail::enumerate<VkExtensionProperties>(
+                "vkEnumerateInstanceExtensionProperties",
+                [](std::uint32_t* count, VkExtensionProperties* items) -> VkResult {
+                    return volk::vkEnumerateInstanceExtensionProperties(validation_layer.data(), count,
+                                                                        items);
+                });
+            if (!provided) {
+                return std::unexpected(provided.error());
+            }
+
+            available->append_range(*provided);
+        }
+
         if (synchronizing && !detail::has_extension(*available, layer_settings)) {
             return detail::failure(vk::error_code::missing_extension,
                                    std::format("{} is too old for validation::full, it lacks {}",
@@ -192,42 +152,41 @@ namespace rei::gpu::vk {
         auto state = std::make_shared<instance::state>();
         state->on_message = options.on_message ? options.on_message : print_message;
         state->validation = options.validation;
-        state->trace = options.trace || tracing_requested();
 
-        const auto enable = [&](std::string_view name) -> void {
-            if (!std::ranges::contains(state->extensions, name)) {
-                state->extensions.emplace_back(name);
-            }
-        };
+        const auto* const variable = std::getenv("REI_GPU_VK_TRACE");
+        state->trace = options.trace || (variable != nullptr && std::string_view{variable} == "1");
+
         for (const auto& name : options.extensions) {
             if (!detail::has_extension(*available, name)) {
                 return detail::failure(vk::error_code::missing_extension,
                                        std::format("the instance extension {} is not available", name));
             }
-            enable(name);
+            if (!std::ranges::contains(state->extensions, name)) {
+                state->extensions.push_back(name);
+            }
         }
 
         const auto debugging = detail::has_extension(*available, debug_utils);
         const auto reporting = debugging && (validating || options.on_message);
-        if (debugging) {
-            enable(debug_utils);
+        if (debugging && !std::ranges::contains(state->extensions, debug_utils)) {
+            state->extensions.emplace_back(debug_utils);
         }
-        if (synchronizing) {
-            enable(layer_settings);
+        if (synchronizing && !std::ranges::contains(state->extensions, layer_settings)) {
+            state->extensions.emplace_back(layer_settings);
         }
 
         const auto enabled = VkBool32{VK_TRUE};
-        const auto turned_on = [&](std::string_view setting) -> VkLayerSettingEXT {
-            return {
-                .pLayerName = validation_layer.data(),
-                .pSettingName = setting.data(),
-                .type = VK_LAYER_SETTING_TYPE_BOOL32_EXT,
-                .valueCount = 1,
-                .pValues = &enabled,
-            };
-        };
-        const auto settings =
-            synchronization_settings | std::views::transform(turned_on) | std::ranges::to<std::vector>();
+        const auto settings = synchronization_settings |
+                              std::views::transform([&](std::string_view setting) -> VkLayerSettingEXT {
+                                  return {
+                                      .pLayerName = validation_layer.data(),
+                                      .pSettingName = setting.data(),
+                                      .type = VK_LAYER_SETTING_TYPE_BOOL32_EXT,
+                                      .valueCount = 1,
+                                      .pValues = &enabled,
+                                  };
+                              }) |
+                              std::ranges::to<std::vector>();
         const auto layer_configuration = VkLayerSettingsCreateInfoEXT{
             .sType = VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT,
             .settingCount = static_cast<std::uint32_t>(settings.size()),
@@ -291,11 +250,26 @@ namespace rei::gpu::vk {
             }
         }
 
-        auto devices = enumerate_devices(state->table, state->handle);
-        if (!devices) {
-            return std::unexpected(devices.error());
+        const auto handles = detail::enumerate<VkPhysicalDevice>(
+            "vkEnumeratePhysicalDevices", [&](std::uint32_t* count, VkPhysicalDevice* items) -> VkResult {
+                return state->table.vkEnumeratePhysicalDevices(state->handle, count, items);
+            });
+        if (!handles) {
+            return std::unexpected(handles.error());
         }
-        state->physical_devices = std::move(*devices);
+
+        state->physical_devices = *handles |
+                                  std::views::transform([&](VkPhysicalDevice handle) -> vk::physical_device {
+                                      auto properties = VkPhysicalDeviceProperties{};
+                                      state->table.vkGetPhysicalDeviceProperties(handle, &properties);
+
+                                      return {
+                                          .name = properties.deviceName,
+                                          .type = static_cast<vk::device_type>(properties.deviceType),
+                                          .handle = handle,
+                                      };
+                                  }) |
+                                  std::ranges::to<std::vector>();
 
         return vk::instance{std::move(state)};
     }

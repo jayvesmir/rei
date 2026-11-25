@@ -106,8 +106,9 @@ namespace rei::gpu::vk {
 
             auto query = detail::feature_chain{};
             for (const auto feature : wanted) {
-                if (std::ranges::all_of(detail::info_of(feature).extensions, available)) {
-                    query.add(detail::info_of(feature));
+                const auto& info = detail::feature_table[std::to_underlying(feature)];
+                if (std::ranges::all_of(info.extensions, available)) {
+                    query.add(info);
                 }
             }
             table.vkGetPhysicalDeviceFeatures2(physical.handle, &query.root());
@@ -119,21 +120,17 @@ namespace rei::gpu::vk {
                 .features = std::vector<bool>(detail::feature_table.size()),
                 .extensions = {},
             };
-            const auto enable = [&](std::string_view extension) -> void {
-                if (!std::ranges::contains(chosen.extensions, extension)) {
-                    chosen.extensions.emplace_back(extension);
-                }
-            };
 
             for (auto i = 0uz; i < wanted.size(); i++) {
-                const auto& info = detail::info_of(wanted[i]);
+                const auto& info = detail::feature_table[std::to_underlying(wanted[i])];
                 const auto missing = std::ranges::find_if_not(info.extensions, available);
 
                 if (missing == info.extensions.end() && query.has(info)) {
                     chosen.features[std::to_underlying(wanted[i])] = true;
                     for (const auto& requirement : info.extensions) {
-                        if (!requirement.is_instance) {
-                            enable(requirement.name);
+                        if (!requirement.is_instance &&
+                            !std::ranges::contains(chosen.extensions, requirement.name)) {
+                            chosen.extensions.emplace_back(requirement.name);
                         }
                     }
                 } else if (i < required && missing == info.extensions.end()) {
@@ -152,41 +149,12 @@ namespace rei::gpu::vk {
                     return detail::failure(vk::error_code::missing_extension,
                                            std::format("'{}' lacks the extension {}", physical.name, name));
                 }
-                enable(name);
-            }
-
-            return chosen;
-        }
-
-        auto choose(const volk::VolkInstanceTable& table, std::span<const std::string> instance_extensions,
-                    std::span<const vk::physical_device> physical_devices, const vk::device_options& options)
-            -> std::expected<candidate, rei::error> {
-            if (options.physical) {
-                return assess(table, instance_extensions, *options.physical, options);
-            }
-
-            auto best = std::optional<candidate>{};
-            auto reasons = std::vector<std::string>{};
-
-            for (const auto& physical : physical_devices) {
-                auto assessed = assess(table, instance_extensions, physical, options);
-
-                if (!assessed) {
-                    reasons.push_back(assessed.error().detail());
-                } else if (!best || rank(physical.type) < rank(best->physical.type)) {
-                    best = std::move(*assessed);
+                if (!std::ranges::contains(chosen.extensions, name)) {
+                    chosen.extensions.push_back(name);
                 }
             }
 
-            if (!best) {
-                const auto joined =
-                    reasons | std::views::join_with(std::string_view{"; "}) | std::ranges::to<std::string>();
-                return detail::failure(vk::error_code::no_suitable_device,
-                                       reasons.empty() ? "no Vulkan device was found"
-                                                       : "no suitable device: " + joined);
-            }
-
-            return std::move(*best);
+            return chosen;
         }
     } // namespace
 
@@ -207,14 +175,6 @@ namespace rei::gpu::vk {
         table.vkDestroySemaphore(handle, queue.timeline, nullptr);
         vmaDestroyAllocator(allocator);
         table.vkDestroyDevice(handle, nullptr);
-    }
-
-    auto device::state::begin_commands() -> std::uint64_t {
-        const auto lock = std::scoped_lock{mutex};
-        const auto serial = next_serial++;
-
-        unfinished.emplace(serial, 0);
-        return serial;
     }
 
     auto device::state::end_commands(std::uint64_t serial, std::optional<std::uint64_t> ticket,
@@ -365,19 +325,39 @@ namespace rei::gpu::vk {
         set_name(handle, &info);
     }
 
-    auto device::state::emit(std::string_view text) const -> void {
-        instance.m_state->on_message({.severity = vk::severity::trace, .id = {}, .text = text});
-    }
-
     device::device(std::shared_ptr<device::state> state) noexcept : m_state(std::move(state)) {}
 
     auto device::make(const vk::instance& instance, const vk::device_options& options)
         -> std::expected<vk::device, rei::error> {
         const auto& context = *instance.m_state;
 
-        auto chosen = choose(context.table, context.extensions, context.physical_devices, options);
-        if (!chosen) {
-            return std::unexpected(chosen.error());
+        auto chosen = std::optional<candidate>{};
+        if (options.physical) {
+            auto assessed = assess(context.table, context.extensions, *options.physical, options);
+            if (!assessed) {
+                return std::unexpected(assessed.error());
+            }
+
+            chosen = std::move(*assessed);
+        } else {
+            auto reasons = std::vector<std::string>{};
+            for (const auto& physical : context.physical_devices) {
+                auto assessed = assess(context.table, context.extensions, physical, options);
+
+                if (!assessed) {
+                    reasons.push_back(assessed.error().detail());
+                } else if (!chosen || rank(physical.type) < rank(chosen->physical.type)) {
+                    chosen = std::move(*assessed);
+                }
+            }
+
+            if (!chosen) {
+                const auto joined =
+                    reasons | std::views::join_with(std::string_view{"; "}) | std::ranges::to<std::string>();
+                return detail::failure(vk::error_code::no_suitable_device,
+                                       reasons.empty() ? "no Vulkan device was found"
+                                                       : "no suitable device: " + joined);
+            }
         }
 
         auto enabled = detail::feature_chain{};
@@ -508,6 +488,7 @@ namespace rei::gpu::vk {
         }
 
         state.collect();
+
         return {};
     }
 
@@ -523,6 +504,7 @@ namespace rei::gpu::vk {
         }
 
         state.collect();
+
         return {};
     }
 

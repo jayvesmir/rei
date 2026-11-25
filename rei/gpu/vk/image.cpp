@@ -21,111 +21,117 @@
 
 namespace rei::gpu::vk {
     namespace {
-        auto default_home(vk::image_usage usage) noexcept -> std::optional<vk::access> {
-            if (vk::has(usage, vk::image_usage::storage)) {
-                return vk::access::shader_write;
-            }
-            if (vk::has(usage, vk::image_usage::sampled)) {
-                return vk::access::shader_read;
-            }
-            if (vk::has(usage, vk::image_usage::color_attachment)) {
-                return vk::access::color_attachment;
-            }
-            if (vk::has(usage, vk::image_usage::depth_stencil_attachment)) {
-                return vk::access::depth_attachment;
-            }
-            if (vk::has(usage, vk::image_usage::transfer_src)) {
-                return vk::access::transfer_src;
-            }
-            if (vk::has(usage, vk::image_usage::transfer_dst)) {
-                return vk::access::transfer_dst;
-            }
-
-            return std::nullopt;
-        }
-
-        auto misfit(vk::access home, vk::image_usage usage) noexcept -> std::string_view {
-            switch (home) {
-            case vk::access::shader_read:
-                return vk::has(usage, vk::image_usage::sampled) ? "" : "needs the sampled usage";
-            case vk::access::shader_write:
-                return vk::has(usage, vk::image_usage::sampled) || vk::has(usage, vk::image_usage::storage)
-                           ? ""
-                           : "needs the sampled or storage usage";
-            case vk::access::color_attachment:
-                return vk::has(usage, vk::image_usage::color_attachment) ? ""
-                                                                         : "needs the color_attachment usage";
-            case vk::access::depth_attachment:
-            case vk::access::depth_read:
-                return vk::has(usage, vk::image_usage::depth_stencil_attachment)
-                           ? ""
-                           : "needs the depth_stencil_attachment usage";
-            case vk::access::transfer_src:
-                return vk::has(usage, vk::image_usage::transfer_src) ? "" : "needs the transfer_src usage";
-            case vk::access::transfer_dst:
-                return vk::has(usage, vk::image_usage::transfer_dst) ? "" : "needs the transfer_dst usage";
-            case vk::access::manual:
-                return "";
-            case vk::access::undefined:
-                return "isn't a place an image can stay";
-            case vk::access::present:
-                return "is for swapchain images";
-            }
-
-            return "is unknown";
-        }
-
-        auto viewable(vk::image_usage usage) noexcept -> bool {
-            return vk::has(usage, vk::image_usage::sampled) || vk::has(usage, vk::image_usage::storage) ||
-                   vk::has(usage, vk::image_usage::color_attachment) ||
-                   vk::has(usage, vk::image_usage::depth_stencil_attachment);
-        }
-
         auto check(const vk::image_options& options) -> std::expected<vk::access, rei::error> {
+            const auto what = detail::quoted(options.name, "image");
             const auto& extent = options.extent;
-            const auto invalid = [&](std::string_view problem) -> std::unexpected<rei::error> {
-                return detail::failure(vk::error_code::invalid_argument,
-                                       std::format("{}: {}", detail::quoted(options.name, "image"), problem));
-            };
+            const auto usage = options.usage;
 
             if (options.format == vk::format::undefined) {
-                return invalid("format is undefined");
+                return detail::failure(vk::error_code::invalid_argument,
+                                       std::format("{}: format is undefined", what));
             }
-            if (std::to_underlying(options.usage) == 0) {
-                return invalid("usage is empty");
+            if (std::to_underlying(usage) == 0) {
+                return detail::failure(vk::error_code::invalid_argument,
+                                       std::format("{}: usage is empty", what));
             }
             if (extent.width == 0 || extent.height == 0 || extent.depth == 0) {
-                return invalid(std::format("extent {}x{}x{} has a side of 0", extent.width, extent.height,
-                                           extent.depth));
+                return detail::failure(vk::error_code::invalid_argument,
+                                       std::format("{}: extent {}x{}x{} has a side of 0", what, extent.width,
+                                                   extent.height, extent.depth));
             }
             if (options.array_layers == 0) {
-                return invalid("array_layers is 0");
+                return detail::failure(vk::error_code::invalid_argument,
+                                       std::format("{}: array_layers is 0", what));
             }
             if (extent.depth > 1 && (options.array_layers > 1 || options.cube)) {
-                return invalid("a 3D image can't have array layers or be a cube");
+                return detail::failure(
+                    vk::error_code::invalid_argument,
+                    std::format("{}: a 3D image can't have array layers or be a cube", what));
             }
             if (options.cube && (extent.width != extent.height || options.array_layers % 6 != 0)) {
-                return invalid("a cube needs square sides and a multiple of 6 array layers");
+                return detail::failure(
+                    vk::error_code::invalid_argument,
+                    std::format("{}: a cube needs square sides and a multiple of 6 array layers", what));
             }
             if (options.mip_levels == 0 || options.mip_levels > vk::mip_count(extent)) {
-                return invalid(std::format("{} mip levels, and {}x{}x{} has room for 1 to {}",
-                                           options.mip_levels, extent.width, extent.height, extent.depth,
-                                           vk::mip_count(extent)));
+                return detail::failure(vk::error_code::invalid_argument,
+                                       std::format("{}: {} mip levels, and {}x{}x{} has room for 1 to {}",
+                                                   what, options.mip_levels, extent.width, extent.height,
+                                                   extent.depth, vk::mip_count(extent)));
             }
             if (!std::has_single_bit(options.samples) || options.samples > 64) {
-                return invalid(
-                    std::format("{} samples, and that isn't a power of two up to 64", options.samples));
+                return detail::failure(vk::error_code::invalid_argument,
+                                       std::format("{}: {} samples, and that isn't a power of two up to 64",
+                                                   what, options.samples));
             }
             if (options.samples > 1 && (options.mip_levels > 1 || extent.depth > 1 || options.cube)) {
-                return invalid("a multisampled image has one mip level, two dimensions and no cube");
+                return detail::failure(
+                    vk::error_code::invalid_argument,
+                    std::format("{}: a multisampled image has one mip level, two dimensions and no cube",
+                                what));
             }
 
-            const auto home = options.home ? options.home : default_home(options.usage);
+            auto home = options.home;
             if (!home) {
-                return invalid("usage has no bit rei knows");
+                if (vk::has(usage, vk::image_usage::storage)) {
+                    home = vk::access::shader_write;
+                } else if (vk::has(usage, vk::image_usage::sampled)) {
+                    home = vk::access::shader_read;
+                } else if (vk::has(usage, vk::image_usage::color_attachment)) {
+                    home = vk::access::color_attachment;
+                } else if (vk::has(usage, vk::image_usage::depth_stencil_attachment)) {
+                    home = vk::access::depth_attachment;
+                } else if (vk::has(usage, vk::image_usage::transfer_src)) {
+                    home = vk::access::transfer_src;
+                } else if (vk::has(usage, vk::image_usage::transfer_dst)) {
+                    home = vk::access::transfer_dst;
+                } else {
+                    return detail::failure(vk::error_code::invalid_argument,
+                                           std::format("{}: usage has no bit rei knows", what));
+                }
             }
-            if (const auto problem = misfit(*home, options.usage); !problem.empty()) {
-                return invalid(std::format("home {} {}", detail::use_of(*home).name, problem));
+
+            auto problem = std::string_view{"is unknown"};
+            switch (*home) {
+            case vk::access::shader_read:
+                problem = vk::has(usage, vk::image_usage::sampled) ? "" : "needs the sampled usage";
+                break;
+            case vk::access::shader_write:
+                problem = vk::has(usage, vk::image_usage::sampled) || vk::has(usage, vk::image_usage::storage)
+                              ? ""
+                              : "needs the sampled or storage usage";
+                break;
+            case vk::access::color_attachment:
+                problem = vk::has(usage, vk::image_usage::color_attachment)
+                              ? ""
+                              : "needs the color_attachment usage";
+                break;
+            case vk::access::depth_attachment:
+            case vk::access::depth_read:
+                problem = vk::has(usage, vk::image_usage::depth_stencil_attachment)
+                              ? ""
+                              : "needs the depth_stencil_attachment usage";
+                break;
+            case vk::access::transfer_src:
+                problem = vk::has(usage, vk::image_usage::transfer_src) ? "" : "needs the transfer_src usage";
+                break;
+            case vk::access::transfer_dst:
+                problem = vk::has(usage, vk::image_usage::transfer_dst) ? "" : "needs the transfer_dst usage";
+                break;
+            case vk::access::manual:
+                problem = "";
+                break;
+            case vk::access::undefined:
+                problem = "isn't a place an image can stay";
+                break;
+            case vk::access::present:
+                problem = "is for swapchain images";
+                break;
+            }
+            if (!problem.empty()) {
+                return detail::failure(
+                    vk::error_code::invalid_argument,
+                    std::format("{}: home {} {}", what, detail::use_of(*home).name, problem));
             }
 
             return *home;
@@ -148,6 +154,23 @@ namespace rei::gpu::vk {
             .height = std::max(extent.height >> mip, 1U),
             .depth = std::max(extent.depth >> mip, 1U),
         };
+    }
+
+    auto image::state::label(const VkImageSubresourceRange& range) const -> std::string {
+        auto text = detail::label(name, "image");
+
+        if (mip_levels != 1 && range.levelCount != mip_levels) {
+            text += range.levelCount == 1 ? std::format(" mip {}", range.baseMipLevel)
+                                          : std::format(" mips {}-{}", range.baseMipLevel,
+                                                        range.baseMipLevel + range.levelCount - 1);
+        }
+        if (array_layers != 1 && range.layerCount != array_layers) {
+            text += range.layerCount == 1 ? std::format(" layer {}", range.baseArrayLayer)
+                                          : std::format(" layers {}-{}", range.baseArrayLayer,
+                                                        range.baseArrayLayer + range.layerCount - 1);
+        }
+
+        return text;
     }
 
     image::state::~state() {
@@ -189,10 +212,8 @@ namespace rei::gpu::vk {
         const auto layers = options.array_layers.value_or(source.array_layers -
                                                           std::min(options.first_layer, source.array_layers));
 
-        if (mips == 0 || options.first_mip >= source.mip_levels ||
-            mips > source.mip_levels - options.first_mip || layers == 0 ||
-            options.first_layer >= source.array_layers ||
-            layers > source.array_layers - options.first_layer) {
+        if (mips == 0 || !detail::fits(source.mip_levels, options.first_mip, mips) || layers == 0 ||
+            !detail::fits(source.array_layers, options.first_layer, layers)) {
             return detail::failure(
                 vk::error_code::invalid_argument,
                 std::format(
@@ -242,7 +263,10 @@ namespace rei::gpu::vk {
         state->name = std::move(name);
         state->own = own;
 
-        if (!viewable(image->usage)) {
+        if (!vk::has(image->usage, vk::image_usage::sampled) &&
+            !vk::has(image->usage, vk::image_usage::storage) &&
+            !vk::has(image->usage, vk::image_usage::color_attachment) &&
+            !vk::has(image->usage, vk::image_usage::depth_stencil_attachment)) {
             if (own) {
                 return vk::image_view{std::move(state)};
             }
@@ -284,6 +308,7 @@ namespace rei::gpu::vk {
         }
 
         context.name(VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<std::uint64_t>(state->handle), state->name);
+
         return vk::image_view{std::move(state)};
     }
 
@@ -472,6 +497,7 @@ namespace rei::gpu::vk {
         }
 
         context.name(VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<std::uint64_t>(state->handle), options.name);
+
         return vk::sampler{std::move(state)};
     }
 

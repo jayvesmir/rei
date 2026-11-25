@@ -32,8 +32,6 @@ namespace rei::gpu::vk::detail {
     extern const std::span<const detail::feature_info> feature_table;
     extern const std::span<const detail::feature_alias> feature_aliases;
 
-    [[nodiscard]] auto info_of(vk::feature feature) noexcept -> const detail::feature_info&;
-
     class feature_chain {
       private:
         std::vector<std::vector<std::byte>> m_structs;
