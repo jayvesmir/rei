@@ -120,6 +120,8 @@ namespace rei::gpu::vk {
         std::vector<std::string> extensions;
         std::vector<vk::physical_device> physical_devices;
         std::function<void(const vk::message&)> on_message;
+        vk::validation validation{vk::validation::none};
+        bool trace{};
 
         state() = default;
         state(const state& other) = delete;
@@ -140,11 +142,21 @@ namespace rei::gpu::vk {
         volk::VolkDeviceTable table{};
         VmaAllocator allocator{};
         std::vector<bool> features;
+        bool tracing{};
         vk::queue::state queue;
 
         state(vk::instance instance, vk::physical_device physical) noexcept;
         state(const state& other) = delete;
         auto operator=(const state& other) -> state& = delete;
         ~state();
+
+        auto emit(std::string_view text) const -> void;
+
+        template <typename... Args>
+        auto trace(std::format_string<Args...> format, Args&&... args) const -> void {
+            if (tracing) {
+                emit(std::format(format, std::forward<Args>(args)...));
+            }
+        }
     };
 } // namespace rei::gpu::vk

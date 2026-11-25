@@ -189,7 +189,7 @@ namespace rei::gpu::vk {
     };
 
     enum class host_access : std::uint8_t { none, write, read_write };
-    enum class severity : std::uint8_t { verbose, info, warning, error };
+    enum class severity : std::uint8_t { trace, verbose, info, warning, error };
     enum class validation : std::uint8_t { none, core, full };
 
     struct extent {

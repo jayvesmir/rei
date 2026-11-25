@@ -2,6 +2,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <expected>
 #include <format>
 #include <functional>
@@ -100,10 +101,31 @@ namespace rei::gpu::vk {
             return *handles | std::views::transform(describe) | std::ranges::to<std::vector>();
         }
 
+        auto severity_name(vk::severity severity) noexcept -> std::string_view {
+            switch (severity) {
+            case vk::severity::trace:
+                return "trace";
+            case vk::severity::verbose:
+                return "verbose";
+            case vk::severity::info:
+                return "info";
+            case vk::severity::warning:
+                return "warning";
+            case vk::severity::error:
+                return "error";
+            }
+
+            return "message";
+        }
+
         auto print_message(const vk::message& message) -> void {
-            std::println(stderr, "vulkan {}: {}{}{}",
-                         message.severity == vk::severity::error ? "error" : "warning", message.id,
+            std::println(stderr, "vulkan {}: {}{}{}", severity_name(message.severity), message.id,
                          message.id.empty() ? "" : ": ", message.text);
+        }
+
+        auto tracing_requested() -> bool {
+            const auto* const variable = std::getenv("REI_GPU_VK_TRACE");
+            return variable != nullptr && std::string_view{variable} == "1";
         }
 
         auto to_severity(VkDebugUtilsMessageSeverityFlagBitsEXT severity) noexcept -> vk::severity {
@@ -169,6 +191,8 @@ namespace rei::gpu::vk {
 
         auto state = std::make_shared<instance::state>();
         state->on_message = options.on_message ? options.on_message : print_message;
+        state->validation = options.validation;
+        state->trace = options.trace || tracing_requested();
 
         const auto enable = [&](std::string_view name) -> void {
             if (!std::ranges::contains(state->extensions, name)) {

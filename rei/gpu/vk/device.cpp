@@ -199,6 +199,10 @@ namespace rei::gpu::vk {
         table.vkDestroyDevice(handle, nullptr);
     }
 
+    auto device::state::emit(std::string_view text) const -> void {
+        instance.m_state->on_message({.severity = vk::severity::trace, .id = {}, .text = text});
+    }
+
     device::device(std::shared_ptr<device::state> state) noexcept : m_state(std::move(state)) {}
 
     auto device::make(const vk::instance& instance, const vk::device_options& options)
@@ -249,6 +253,7 @@ namespace rei::gpu::vk {
         state->queue.family = chosen->queue_family;
         state->limits = chosen->limits;
         state->features = std::move(chosen->features);
+        state->tracing = context.trace;
 
         const auto functions = VmaVulkanFunctions{
             .vkGetInstanceProcAddr = volk::vkGetInstanceProcAddr,

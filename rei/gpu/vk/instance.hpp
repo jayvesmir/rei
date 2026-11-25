@@ -33,6 +33,7 @@ namespace rei::gpu::vk {
         std::string application{};
         std::vector<std::string> extensions{};
         vk::validation validation{vk::validation::none};
+        bool trace{false};
         std::function<void(const vk::message&)> on_message{};
     };
 
