@@ -52,6 +52,7 @@ cc_library(
         "vk/buffer.cpp",
         "vk/device.cpp",
         "vk/feature.cpp",
+        "vk/image.cpp",
         "vk/instance.cpp",
 
         "@rei_vk_vocabulary//:feature_table.cpp",
@@ -62,6 +63,7 @@ cc_library(
         "vk.hpp",
         "vk/buffer.hpp",
         "vk/device.hpp",
+        "vk/image.hpp",
         "vk/instance.hpp",
         "vk/raw.hpp",
         "vk/vocabulary.hpp",

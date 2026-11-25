@@ -29,6 +29,7 @@
 #include "rei/gpu/vk/buffer.hpp"
 #include "rei/gpu/vk/device.hpp"
 #include "rei/gpu/vk/error_code.hpp"
+#include "rei/gpu/vk/image.hpp"
 #include "rei/gpu/vk/instance.hpp"
 
 namespace rei::gpu::vk {
@@ -184,6 +185,7 @@ namespace rei::gpu::vk {
         std::uint64_t next_serial{1};
         std::map<std::uint64_t, std::uint64_t> unfinished;
         std::vector<detail::retired> retired;
+        std::vector<std::weak_ptr<vk::image::state>> new_images;
         std::vector<detail::command_pool> free_pools;
 
         state(vk::instance instance, vk::physical_device physical) noexcept;
@@ -221,6 +223,49 @@ namespace rei::gpu::vk {
         vk::host_access host{vk::host_access::none};
         std::span<std::byte> mapped;
         std::optional<std::uint64_t> address;
+        std::string name;
+
+        ~state();
+    };
+
+    struct image::state {
+        std::shared_ptr<vk::device::state> device;
+        VkImage handle{};
+        VmaAllocation allocation{};
+        VkDeviceMemory memory{};
+        vk::format format{vk::format::undefined};
+        vk::extent extent{};
+        vk::image_usage usage{};
+        std::uint32_t mip_levels{1};
+        std::uint32_t array_layers{1};
+        std::uint32_t samples{1};
+        bool cube{};
+        vk::access home{vk::access::manual};
+        std::string name;
+
+        ~state();
+
+        [[nodiscard]] auto range() const noexcept -> VkImageSubresourceRange;
+        [[nodiscard]] auto extent_of(std::uint32_t mip) const noexcept -> vk::extent;
+    };
+
+    struct image_view::state {
+        std::shared_ptr<vk::device::state> device;
+        std::weak_ptr<vk::image::state> image;
+        std::string image_name;
+        VkImageView handle{};
+        vk::format format{vk::format::undefined};
+        vk::extent extent{};
+        VkImageSubresourceRange range{};
+        std::string name;
+        bool own{};
+
+        ~state();
+    };
+
+    struct sampler::state {
+        std::shared_ptr<vk::device::state> device;
+        VkSampler handle{};
         std::string name;
 
         ~state();

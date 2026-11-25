@@ -20,7 +20,10 @@ namespace volk {
 
 namespace rei::gpu::vk {
     class buffer;
+    class image;
+    class image_view;
     class queue;
+    class sampler;
 
     struct ticket {
         std::uint32_t queue{};
@@ -38,6 +41,9 @@ namespace rei::gpu::vk {
     class device {
       private:
         friend class buffer;
+        friend class image;
+        friend class image_view;
+        friend class sampler;
 
         struct state;
 
