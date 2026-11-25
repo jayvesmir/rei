@@ -80,6 +80,35 @@ def _formats(xml, sections, vendors):
         formats.append((enumerator, name))
     return formats
 
+def _format_layouts(xml, formats):
+    enumerators = {name: enumerator for enumerator, name in formats}
+    layouts = {}
+    for chunk in xml.split("<formats>")[1].split("</formats>")[0].split("<format ")[1:]:
+        tag = " " + chunk[:chunk.find(">") + 1]
+        name = _attr(tag, "name")
+        if name not in enumerators:
+            continue
+
+        body = chunk[:chunk.find("</format>")]
+        components = [_attr(" " + component, "name") for component in body.split("<component ")[1:]]
+        aspects = []
+        if "D" in components:
+            aspects.append("VK_IMAGE_ASPECT_DEPTH_BIT")
+        if "S" in components:
+            aspects.append("VK_IMAGE_ASPECT_STENCIL_BIT")
+
+        layouts[enumerators[name]] = struct(
+            block_size = _attr(tag, "blockSize"),
+            block_extent = (_attr(tag, "blockExtent") or "1,1,1").replace(",", ", "),
+            aspects = " | ".join(aspects) if aspects else "VK_IMAGE_ASPECT_COLOR_BIT",
+            planar = "<plane " in body,
+        )
+
+    for enumerator, name in formats:
+        if enumerator not in layouts and enumerator != "undefined":
+            fail("vk_vocabulary: %s has no entry in the registry's <formats>" % name)
+    return layouts
+
 def _closing_line(text, closing):
     position = 0
     for _ in range(len(text)):
@@ -282,6 +311,40 @@ def _format_header(formats):
     lines += ["    };", "} // namespace rei::gpu::vk", ""]
     return _HEADER + "\n".join(lines)
 
+def _format_table(formats, layouts):
+    lines = [
+        "#include <vulkan/vulkan_core.h>",
+        "",
+        "#include \"rei/gpu/vk/detail/formats.hpp\"",
+        "#include \"rei/gpu/vk/format.hpp\"",
+        "",
+        "namespace rei::gpu::vk::detail {",
+        "    auto info_of(vk::format format) noexcept -> detail::format_info {",
+        "        switch (format) {",
+    ]
+    for enumerator, _ in formats:
+        layout = layouts.get(enumerator)
+        lines.append("        case vk::format::%s:" % enumerator)
+        if layout == None:
+            lines.append("            return {\"%s\", 0, {1, 1, 1}, 0, false};" % enumerator)
+        else:
+            lines.append("            return {\"%s\", %s, {%s}, %s, %s};" % (
+                enumerator,
+                layout.block_size,
+                layout.block_extent,
+                layout.aspects,
+                "true" if layout.planar else "false",
+            ))
+    lines += [
+        "        }",
+        "",
+        "        return {\"unknown\", 0, {1, 1, 1}, 0, false};",
+        "    }",
+        "} // namespace rei::gpu::vk::detail",
+        "",
+    ]
+    return _HEADER + "\n".join(lines)
+
 def _feature_header(features, aliases):
     lines = [
         "#pragma once",
@@ -352,18 +415,20 @@ def _vk_vocabulary_impl(rctx):
     sections = _sections(xml)
     vendors = _vendors(xml)
     features, aliases, requirements = _features(xml, sections, vendors)
+    formats = _formats(xml, sections, vendors)
 
-    rctx.file("format.hpp", _format_header(_formats(xml, sections, vendors)))
+    rctx.file("format.hpp", _format_header(formats))
+    rctx.file("format_table.cpp", _format_table(formats, _format_layouts(xml, formats)))
     rctx.file("feature.hpp", _feature_header(features, aliases))
     rctx.file("feature_table.cpp", _feature_table(features, aliases, requirements))
-    rctx.file("BUILD.bazel", 'exports_files(["feature.hpp", "feature_table.cpp", "format.hpp"])\n')
+    rctx.file("BUILD.bazel", 'exports_files(["feature.hpp", "feature_table.cpp", "format.hpp", "format_table.cpp"])\n')
 
 vk_vocabulary = repository_rule(
     implementation = _vk_vocabulary_impl,
     attrs = {
         "registry": attr.label(default = "@vulkan_headers//:registry/vk.xml", allow_single_file = True),
     },
-    doc = "Generates format.hpp, feature.hpp and feature_table.cpp for //rei/gpu:vk from vk.xml.",
+    doc = "Generates format.hpp, format_table.cpp, feature.hpp and feature_table.cpp for //rei/gpu:vk from vk.xml.",
 )
 
 def _vk_vocabulary_headers_impl(ctx):

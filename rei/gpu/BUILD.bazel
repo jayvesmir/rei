@@ -43,6 +43,7 @@ cc_library(
 
     srcs = [
         "vk/detail/features.hpp",
+        "vk/detail/formats.hpp",
         "vk/detail/loader.cpp",
         "vk/detail/loader.hpp",
         "vk/detail/state.hpp",
@@ -52,6 +53,7 @@ cc_library(
         "vk/instance.cpp",
 
         "@rei_vk_vocabulary//:feature_table.cpp",
+        "@rei_vk_vocabulary//:format_table.cpp",
     ],
 
     hdrs = [
