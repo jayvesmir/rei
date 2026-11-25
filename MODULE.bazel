@@ -15,6 +15,17 @@ bazel_dep(name = "spirv_tools", version = "2026.3")
 bazel_dep(name = "googletest", version = "1.18.0", dev_dependency = True)
 bazel_dep(name = "nlohmann_json", version = "3.12.0.bcr.2", dev_dependency = True)
 
+# The Vulkan SDK's glslc compiles the shaders of the gpu::vk tests and testbed.
+bazel_dep(name = "bazel_skylib", version = "1.9.0", dev_dependency = True)
+bazel_dep(name = "rules_vulkan", version = "0.9.0", dev_dependency = True)
+
+vulkan_sdk = use_extension("@rules_vulkan//vulkan:extensions.bzl", "vulkan_sdk", dev_dependency = True)
+
+vulkan_sdk.toolchain(version = "1.4.350.0")
+use_repo(vulkan_sdk, "vulkan_sdk_1.4.350.0")
+
+register_toolchains("@vulkan_sdk_1.4.350.0//:all", dev_dependency = True)
+
 # Unicode data for IDNA in core::url.
 idna_tables = use_repo_rule("//rei/core:url/idna_tables.bzl", "idna_tables")
 
