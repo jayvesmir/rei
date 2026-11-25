@@ -72,6 +72,8 @@ http_archive(
     sha256 = "e045cdd7598211cdbaf39791151bc526a9844401d615579e4959966d2317bdd7",
     strip_prefix = "SPIRV-Reflect-vulkan-sdk-1.4.350.1",
     build_file = "//third_party:spirv_reflect.bzl",
+    patches = ["//third_party/patches:spirv_reflect.patch"],
+    patch_strip = 1,
 )
 
 # Conformance cases for formats::toml.

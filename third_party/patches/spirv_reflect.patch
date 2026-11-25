@@ -1,0 +1,47 @@
+--- a/spirv_reflect.c
++++ b/spirv_reflect.c
+@@ -1888,6 +1888,9 @@
+           SpvReflectPrvNode* p_length_node = FindNode(p_parser, length_id);
+           if (IsNotNull(p_length_node)) {
+             uint32_t dim_index = p_type->traits.array.dims_count;
++            if (dim_index >= SPV_REFLECT_MAX_ARRAY_DIMS) {
++              return SPV_REFLECT_RESULT_ERROR_RANGE_EXCEEDED;
++            }
+             uint32_t length = 0;
+             IF_READU32(result, p_parser, p_length_node->word_offset + 3, length);
+             if (result == SPV_REFLECT_RESULT_SUCCESS) {
+@@ -1917,6 +1920,9 @@
+         IF_READU32(result, p_parser, p_node->word_offset + 2, element_type_id);
+         p_type->traits.array.stride = p_node->decorations.array_stride;
+         uint32_t dim_index = p_type->traits.array.dims_count;
++        if (dim_index >= SPV_REFLECT_MAX_ARRAY_DIMS) {
++          return SPV_REFLECT_RESULT_ERROR_RANGE_EXCEEDED;
++        }
+         p_type->traits.array.dims[dim_index] = (uint32_t)SPV_REFLECT_ARRAY_DIM_RUNTIME;
+         p_type->traits.array.spec_constant_op_ids[dim_index] = (uint32_t)INVALID_VALUE;
+         p_type->traits.array.dims_count += 1;
+@@ -2109,7 +2115,7 @@
+ static int SortCompareDescriptorBinding(const void* a, const void* b) {
+   const SpvReflectDescriptorBinding* p_elem_a = (const SpvReflectDescriptorBinding*)a;
+   const SpvReflectDescriptorBinding* p_elem_b = (const SpvReflectDescriptorBinding*)b;
+-  int value = (int)(p_elem_a->binding) - (int)(p_elem_b->binding);
++  int value = (p_elem_a->binding > p_elem_b->binding) - (p_elem_a->binding < p_elem_b->binding);
+   if (value == 0) {
+     // use spirv-id as a tiebreaker to ensure a stable ordering, as they're guaranteed
+     // unique.
+@@ -2435,9 +2441,14 @@
+     // ...otherwise use old @count convention.
+     else {
+       const size_t descriptor_name_length = p_descriptor->name ? strlen(p_descriptor->name) : 0;
++      if (descriptor_name_length + strlen(k_count_tag) >= MAX_NODE_NAME_LENGTH) {
++        continue;
++      }
+ 
+       memset(name, 0, MAX_NODE_NAME_LENGTH);
+-      memcpy(name, p_descriptor->name, descriptor_name_length);
++      if (descriptor_name_length > 0) {
++        memcpy(name, p_descriptor->name, descriptor_name_length);
++      }
+ #if defined(_WIN32)
+       strcat_s(name, MAX_NODE_NAME_LENGTH, k_count_tag);
+ #else
