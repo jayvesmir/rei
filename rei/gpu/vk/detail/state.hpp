@@ -33,6 +33,7 @@
 #include "rei/gpu/vk/error_code.hpp"
 #include "rei/gpu/vk/image.hpp"
 #include "rei/gpu/vk/instance.hpp"
+#include "rei/gpu/vk/shader.hpp"
 
 namespace rei::gpu::vk {
     namespace detail {
@@ -160,6 +161,14 @@ namespace rei::gpu::vk {
             detail::use to;
             bool discard{};
             bool folded{};
+        };
+
+        struct shader_binding {
+            std::uint32_t set{};
+            std::uint32_t binding{};
+            vk::descriptor_type type{};
+            std::uint32_t count{};
+            std::string name;
         };
     } // namespace detail
 
@@ -290,6 +299,16 @@ namespace rei::gpu::vk {
         std::string name;
 
         ~state();
+    };
+
+    struct shader::state {
+        std::vector<std::uint32_t> spirv;
+        vk::shader_stage stage{};
+        std::string entry_point;
+        vk::extent local_size{};
+        std::vector<detail::shader_binding> bindings;
+        std::uint32_t push_constant_size{};
+        bool writes{};
     };
 
     struct commands::state {
