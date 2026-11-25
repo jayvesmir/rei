@@ -1,9 +1,13 @@
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <expected>
 #include <format>
+#include <limits>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -195,8 +199,170 @@ namespace rei::gpu::vk {
         }
 
         table.vkDeviceWaitIdle(handle);
+        release(std::exchange(retired, {}));
+        for (const auto& pool : free_pools) {
+            table.vkDestroyCommandPool(handle, pool.pool, nullptr);
+        }
+
+        table.vkDestroySemaphore(handle, queue.timeline, nullptr);
         vmaDestroyAllocator(allocator);
         table.vkDestroyDevice(handle, nullptr);
+    }
+
+    auto device::state::begin_commands() -> std::uint64_t {
+        const auto lock = std::scoped_lock{mutex};
+        const auto serial = next_serial++;
+
+        unfinished.emplace(serial, 0);
+        return serial;
+    }
+
+    auto device::state::end_commands(std::uint64_t serial, std::optional<std::uint64_t> ticket,
+                                     std::vector<detail::retired> items) -> void {
+        const auto lock = std::scoped_lock{mutex};
+
+        if (ticket) {
+            unfinished[serial] = *ticket;
+        } else {
+            unfinished.erase(serial);
+        }
+
+        for (auto& item : items) {
+            item.serial = serial;
+            retired.push_back(std::move(item));
+        }
+    }
+
+    auto device::state::take_pool() -> std::expected<detail::command_pool, rei::error> {
+        {
+            const auto lock = std::scoped_lock{mutex};
+            if (!free_pools.empty()) {
+                const auto pool = free_pools.back();
+                free_pools.pop_back();
+                return pool;
+            }
+        }
+
+        auto pool = detail::command_pool{};
+        const auto pool_info = VkCommandPoolCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+            .queueFamilyIndex = queue.family,
+        };
+        if (const auto result = table.vkCreateCommandPool(handle, &pool_info, nullptr, &pool.pool);
+            result != VK_SUCCESS) {
+            return detail::failure(result, "vkCreateCommandPool");
+        }
+
+        const auto buffer_info = VkCommandBufferAllocateInfo{
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .commandPool = pool.pool,
+            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1,
+        };
+        if (const auto result = table.vkAllocateCommandBuffers(handle, &buffer_info, &pool.buffer);
+            result != VK_SUCCESS) {
+            table.vkDestroyCommandPool(handle, pool.pool, nullptr);
+            return detail::failure(result, "vkAllocateCommandBuffers");
+        }
+
+        return pool;
+    }
+
+    auto device::state::retire(detail::retired item) -> void {
+        const auto lock = std::scoped_lock{mutex};
+
+        item.serial = next_serial - 1;
+        retired.push_back(std::move(item));
+    }
+
+    auto device::state::collect() -> void {
+        auto completed = std::uint64_t{};
+        if (table.vkGetSemaphoreCounterValue(handle, queue.timeline, &completed) != VK_SUCCESS) {
+            return;
+        }
+
+        auto freeable = std::vector<detail::retired>{};
+        {
+            const auto lock = std::scoped_lock{mutex};
+            std::erase_if(unfinished, [&](const auto& entry) -> bool {
+                return entry.second != 0 && entry.second <= completed;
+            });
+
+            const auto oldest = unfinished.empty() ? next_serial : unfinished.begin()->first;
+            auto kept = std::vector<detail::retired>{};
+            for (auto& item : retired) {
+                (item.serial < oldest ? freeable : kept).push_back(std::move(item));
+            }
+            retired = std::move(kept);
+        }
+
+        if (freeable.empty()) {
+            return;
+        }
+
+        if (tracing) {
+            const auto freed =
+                freeable |
+                std::views::filter([](const detail::retired& item) -> bool { return !item.label.empty(); }) |
+                std::views::transform(&detail::retired::label) |
+                std::views::join_with(std::string_view{", "}) | std::ranges::to<std::string>();
+            if (!freed.empty()) {
+                trace("collect: freed {}", freed);
+            }
+        }
+
+        release(std::move(freeable));
+    }
+
+    auto device::state::release(std::vector<detail::retired> items) -> void {
+        for (const auto& item : items) {
+            if (item.view != VK_NULL_HANDLE) {
+                table.vkDestroyImageView(handle, item.view, nullptr);
+            }
+            if (item.sampler != VK_NULL_HANDLE) {
+                table.vkDestroySampler(handle, item.sampler, nullptr);
+            }
+
+            if (item.allocation != VK_NULL_HANDLE && item.buffer != VK_NULL_HANDLE) {
+                vmaDestroyBuffer(allocator, item.buffer, item.allocation);
+            } else if (item.buffer != VK_NULL_HANDLE) {
+                table.vkDestroyBuffer(handle, item.buffer, nullptr);
+            }
+
+            if (item.allocation != VK_NULL_HANDLE && item.image != VK_NULL_HANDLE) {
+                vmaDestroyImage(allocator, item.image, item.allocation);
+            } else if (item.image != VK_NULL_HANDLE) {
+                table.vkDestroyImage(handle, item.image, nullptr);
+            }
+
+            if (item.memory != VK_NULL_HANDLE) {
+                table.vkFreeMemory(handle, item.memory, nullptr);
+            }
+
+            if (item.pool.pool != VK_NULL_HANDLE) {
+                table.vkResetCommandPool(handle, item.pool.pool, 0);
+
+                const auto lock = std::scoped_lock{mutex};
+                free_pools.push_back(item.pool);
+            }
+        }
+    }
+
+    auto device::state::name(VkObjectType type, std::uint64_t object, std::string_view name) const -> void {
+        const auto& set_name = instance.raw().vkSetDebugUtilsObjectNameEXT;
+        if (name.empty() || set_name == nullptr) {
+            return;
+        }
+
+        const auto text = std::string{name};
+        const auto info = VkDebugUtilsObjectNameInfoEXT{
+            .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+            .objectType = type,
+            .objectHandle = object,
+            .pObjectName = text.c_str(),
+        };
+        set_name(handle, &info);
     }
 
     auto device::state::emit(std::string_view text) const -> void {
@@ -255,6 +421,20 @@ namespace rei::gpu::vk {
         state->features = std::move(chosen->features);
         state->tracing = context.trace;
 
+        const auto timeline_type = VkSemaphoreTypeCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+            .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+        };
+        const auto timeline = VkSemaphoreCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+            .pNext = &timeline_type,
+        };
+        if (const auto result =
+                state->table.vkCreateSemaphore(state->handle, &timeline, nullptr, &state->queue.timeline);
+            result != VK_SUCCESS) {
+            return detail::failure(result, "vkCreateSemaphore");
+        }
+
         const auto functions = VmaVulkanFunctions{
             .vkGetInstanceProcAddr = volk::vkGetInstanceProcAddr,
             .vkGetDeviceProcAddr = context.table.vkGetDeviceProcAddr,
@@ -270,15 +450,9 @@ namespace rei::gpu::vk {
             return detail::failure(result, "vmaCreateAllocator");
         }
 
-        if (!options.name.empty() && context.table.vkSetDebugUtilsObjectNameEXT != nullptr) {
-            const auto name = VkDebugUtilsObjectNameInfoEXT{
-                .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-                .objectType = VK_OBJECT_TYPE_DEVICE,
-                .objectHandle = reinterpret_cast<std::uint64_t>(state->handle),
-                .pObjectName = options.name.c_str(),
-            };
-            context.table.vkSetDebugUtilsObjectNameEXT(state->handle, &name);
-        }
+        state->name(VK_OBJECT_TYPE_DEVICE, reinterpret_cast<std::uint64_t>(state->handle), options.name);
+        state->name(VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<std::uint64_t>(state->queue.timeline),
+                    "rei timeline");
 
         return vk::device{std::move(state)};
     }
@@ -297,6 +471,68 @@ namespace rei::gpu::vk {
 
     auto device::physical() const noexcept -> const vk::physical_device& {
         return m_state->physical;
+    }
+
+    auto device::wait(vk::ticket ticket, std::optional<std::chrono::nanoseconds> timeout) const
+        -> std::expected<void, rei::error> {
+        auto& state = *m_state;
+
+        if (ticket.queue != 0 || ticket.value > state.queue.submitted) {
+            return detail::failure(vk::error_code::invalid_argument,
+                                   std::format("wait for ticket {}, which was never issued", ticket.value));
+        }
+
+        const auto info = VkSemaphoreWaitInfo{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+            .semaphoreCount = 1,
+            .pSemaphores = &state.queue.timeline,
+            .pValues = &ticket.value,
+        };
+        const auto nanoseconds = timeout
+                                     ? static_cast<std::uint64_t>(std::max(timeout->count(), std::int64_t{}))
+                                     : std::numeric_limits<std::uint64_t>::max();
+
+        const auto result = state.table.vkWaitSemaphores(state.handle, &info, nanoseconds);
+        if (result == VK_TIMEOUT) {
+            return detail::failure(vk::error_code::timed_out,
+                                   std::format("ticket {} is not done after {}", ticket.value,
+                                               std::chrono::duration<double, std::milli>{*timeout}));
+        }
+        if (result != VK_SUCCESS) {
+            return detail::failure(result, "vkWaitSemaphores");
+        }
+
+        state.collect();
+        return {};
+    }
+
+    auto device::wait_idle() const -> std::expected<void, rei::error> {
+        auto& state = *m_state;
+
+        auto lock = std::unique_lock{state.queue.mutex};
+        const auto result = state.table.vkDeviceWaitIdle(state.handle);
+        lock.unlock();
+
+        if (result != VK_SUCCESS) {
+            return detail::failure(result, "vkDeviceWaitIdle");
+        }
+
+        state.collect();
+        return {};
+    }
+
+    auto device::done(vk::ticket ticket) const noexcept -> bool {
+        const auto& state = *m_state;
+
+        auto completed = std::uint64_t{};
+        return ticket.queue == 0 &&
+               state.table.vkGetSemaphoreCounterValue(state.handle, state.queue.timeline, &completed) ==
+                   VK_SUCCESS &&
+               completed >= ticket.value;
+    }
+
+    auto device::collect() const -> void {
+        m_state->collect();
     }
 
     auto device::handle() const noexcept -> VkDevice {

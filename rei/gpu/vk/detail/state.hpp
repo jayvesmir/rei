@@ -1,10 +1,14 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <expected>
 #include <format>
 #include <functional>
+#include <map>
+#include <mutex>
+#include <optional>
 #include <source_location>
 #include <span>
 #include <string>
@@ -111,6 +115,23 @@ namespace rei::gpu::vk {
                                              return extension.extensionName;
                                          });
         }
+
+        struct command_pool {
+            VkCommandPool pool{};
+            VkCommandBuffer buffer{};
+        };
+
+        struct retired {
+            std::uint64_t serial{};
+            std::string label;
+            VkBuffer buffer{};
+            VkImage image{};
+            VkImageView view{};
+            VkSampler sampler{};
+            detail::command_pool pool{};
+            VmaAllocation allocation{};
+            VkDeviceMemory memory{};
+        };
     } // namespace detail
 
     struct instance::state {
@@ -132,6 +153,9 @@ namespace rei::gpu::vk {
     struct queue::state {
         VkQueue handle{};
         std::uint32_t family{};
+        VkSemaphore timeline{};
+        std::atomic<std::uint64_t> submitted{};
+        std::mutex mutex;
     };
 
     struct device::state {
@@ -145,11 +169,27 @@ namespace rei::gpu::vk {
         bool tracing{};
         vk::queue::state queue;
 
+        std::mutex mutex;
+        std::uint64_t next_serial{1};
+        std::map<std::uint64_t, std::uint64_t> unfinished;
+        std::vector<detail::retired> retired;
+        std::vector<detail::command_pool> free_pools;
+
         state(vk::instance instance, vk::physical_device physical) noexcept;
         state(const state& other) = delete;
         auto operator=(const state& other) -> state& = delete;
         ~state();
 
+        auto begin_commands() -> std::uint64_t;
+        auto end_commands(std::uint64_t serial, std::optional<std::uint64_t> ticket,
+                          std::vector<detail::retired> items) -> void;
+        auto take_pool() -> std::expected<detail::command_pool, rei::error>;
+
+        auto retire(detail::retired item) -> void;
+        auto collect() -> void;
+        auto release(std::vector<detail::retired> items) -> void;
+
+        auto name(VkObjectType type, std::uint64_t object, std::string_view name) const -> void;
         auto emit(std::string_view text) const -> void;
 
         template <typename... Args>
