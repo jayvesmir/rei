@@ -209,6 +209,18 @@ namespace rei::gpu::vk {
             std::string target;
             std::weak_ptr<const void> resource;
         };
+
+        struct pipeline_state {
+            std::string_view kind;
+            VkPipeline handle{};
+            VkPipelineLayout layout{};
+            std::vector<vk::set_layout> sets;
+            std::vector<std::vector<std::uint32_t>> reads;
+            std::uint32_t push_constant_size{};
+            bool writes{};
+            bool adopted{};
+            std::string name;
+        };
     } // namespace detail
 
     struct instance::state {
@@ -365,6 +377,10 @@ namespace rei::gpu::vk {
 
         [[nodiscard]] auto resolve(std::span<const vk::descriptor> descriptors, VkDescriptorSet set) const
             -> std::expected<detail::descriptor_writes, std::string>;
+
+        static auto lay_out(detail::pipeline_state& pipeline, const vk::device::state& context,
+                            std::span<const vk::shader> shaders, std::span<const vk::set_layout> sets,
+                            std::uint32_t push_constant_size) -> std::expected<void, rei::error>;
     };
 
     struct descriptor_set::state {
@@ -379,16 +395,8 @@ namespace rei::gpu::vk {
         ~state();
     };
 
-    struct compute_pipeline::state {
+    struct compute_pipeline::state : detail::pipeline_state {
         std::shared_ptr<vk::device::state> device;
-        VkPipeline handle{};
-        VkPipelineLayout layout{};
-        std::vector<vk::set_layout> sets;
-        std::vector<std::vector<std::uint32_t>> reads;
-        std::uint32_t push_constant_size{};
-        bool writes{};
-        bool adopted{};
-        std::string name;
 
         ~state();
     };
