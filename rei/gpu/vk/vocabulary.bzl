@@ -91,6 +91,7 @@ def _format_layouts(xml, formats):
 
         body = chunk[:chunk.find("</format>")]
         components = [_attr(" " + component, "name") for component in body.split("<component ")[1:]]
+        numeric = _attr(" " + body.split("<component ")[1], "numericFormat")
         aspects = []
         if "D" in components:
             aspects.append("VK_IMAGE_ASPECT_DEPTH_BIT")
@@ -102,6 +103,7 @@ def _format_layouts(xml, formats):
             block_extent = (_attr(tag, "blockExtent") or "1,1,1").replace(",", ", "),
             aspects = " | ".join(aspects) if aspects else "VK_IMAGE_ASPECT_COLOR_BIT",
             planar = "<plane " in body,
+            numeric = "uint" if numeric == "UINT" else "sint" if numeric == "SINT" else "floating",
         )
 
     for enumerator, name in formats:
@@ -326,19 +328,20 @@ def _format_table(formats, layouts):
         layout = layouts.get(enumerator)
         lines.append("        case vk::format::%s:" % enumerator)
         if layout == None:
-            lines.append("            return {\"%s\", 0, {1, 1, 1}, 0, false};" % enumerator)
+            lines.append("            return {\"%s\", 0, {1, 1, 1}, 0, false, detail::numeric::floating};" % enumerator)
         else:
-            lines.append("            return {\"%s\", %s, {%s}, %s, %s};" % (
+            lines.append("            return {\"%s\", %s, {%s}, %s, %s, detail::numeric::%s};" % (
                 enumerator,
                 layout.block_size,
                 layout.block_extent,
                 layout.aspects,
                 "true" if layout.planar else "false",
+                layout.numeric,
             ))
     lines += [
         "        }",
         "",
-        "        return {\"unknown\", 0, {1, 1, 1}, 0, false};",
+        "        return {\"unknown\", 0, {1, 1, 1}, 0, false, detail::numeric::floating};",
         "    }",
         "} // namespace rei::gpu::vk::detail",
         "",

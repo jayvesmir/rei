@@ -9,12 +9,15 @@
 #include "rei/gpu/vk/vocabulary.hpp"
 
 namespace rei::gpu::vk::detail {
+    enum class numeric : std::uint8_t { floating, uint, sint };
+
     struct format_info {
         std::string_view name;
         std::uint32_t block_size;
         vk::extent block;
         VkImageAspectFlags aspects;
         bool planar;
+        detail::numeric numeric;
     };
 
     [[nodiscard]] auto info_of(vk::format format) noexcept -> detail::format_info;
