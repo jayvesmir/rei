@@ -333,5 +333,15 @@ namespace rei::gpu::vk {
         auto add(std::string_view workflow, detail::barrier barrier) -> void;
         auto flush(std::string_view workflow) -> void;
         auto finish() -> void;
+
+        auto enter(std::string_view workflow, const image::state& image, const VkImageSubresourceRange& range,
+                   vk::access needed, bool discard) -> void;
+        auto leave(std::string_view workflow, const image::state& image, const VkImageSubresourceRange& range,
+                   vk::access needed, bool wrote) -> void;
+        auto enter(std::string_view workflow, const buffer::state& buffer) -> void;
+        auto leave(std::string_view workflow, const buffer::state& buffer) -> void;
+
+        auto stage(std::string_view call, std::string_view workflow, std::span<const std::byte> data)
+            -> std::optional<VkBuffer>;
     };
 } // namespace rei::gpu::vk

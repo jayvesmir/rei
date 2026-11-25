@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <bit>
+#include <cstddef>
 #include <cstdint>
 #include <format>
 #include <initializer_list>
@@ -17,11 +19,16 @@
 #include "rei/core/error.hpp"
 #include "rei/gpu/vk/commands.hpp"
 #include "rei/gpu/vk/detail/access.hpp"
+#include "rei/gpu/vk/detail/formats.hpp"
 #include "rei/gpu/vk/detail/state.hpp"
 #include "rei/gpu/vk/error_code.hpp"
 
 namespace rei::gpu::vk {
     namespace {
+        auto fits(std::uint64_t size, std::uint64_t offset, std::uint64_t count) noexcept -> bool {
+            return offset <= size && count <= size - offset;
+        }
+
         auto overlaps(std::uint32_t first, std::uint32_t count, std::uint32_t other_first,
                       std::uint32_t other_count) noexcept -> bool {
             return first < other_first + other_count && other_first < first + count;
@@ -61,6 +68,15 @@ namespace rei::gpu::vk {
         auto describe(const detail::barrier& barrier) -> std::string {
             return std::format("{}: {} → {}{}{}", barrier.target, barrier.from.name, barrier.to.name,
                                barrier.discard ? ", discard" : "", barrier.folded ? " (folded)" : "");
+        }
+
+        auto level_size(const detail::format_info& format, vk::extent extent) noexcept -> std::uint64_t {
+            const auto blocks = [](std::uint32_t texels, std::uint32_t block) -> std::uint64_t {
+                return (std::uint64_t{texels} + block - 1) / block;
+            };
+
+            return blocks(extent.width, format.block.width) * blocks(extent.height, format.block.height) *
+                   blocks(extent.depth, format.block.depth) * format.block_size;
         }
 
         auto buffer_use(vk::access access) noexcept -> std::optional<detail::use> {
@@ -211,6 +227,102 @@ namespace rei::gpu::vk {
         end();
     }
 
+    auto commands::state::enter(std::string_view workflow, const image::state& image,
+                                const VkImageSubresourceRange& range, vk::access needed, bool discard)
+        -> void {
+        if (image.home == vk::access::manual || image.home == needed) {
+            return;
+        }
+
+        add(workflow,
+            {
+                .target = detail::label(image.name, "image") +
+                          part("mip", "mips", range.baseMipLevel, range.levelCount, image.mip_levels) +
+                          part("layer", "layers", range.baseArrayLayer, range.layerCount, image.array_layers),
+                .image = image.handle,
+                .range = range,
+                .from = detail::use_of(image.home),
+                .to = detail::use_of(needed),
+                .discard = discard,
+            });
+    }
+
+    auto commands::state::leave(std::string_view workflow, const image::state& image,
+                                const VkImageSubresourceRange& range, vk::access needed, bool wrote) -> void {
+        if (image.home == vk::access::manual || (image.home == needed && !wrote)) {
+            return;
+        }
+
+        add(workflow,
+            {
+                .target = detail::label(image.name, "image") +
+                          part("mip", "mips", range.baseMipLevel, range.levelCount, image.mip_levels) +
+                          part("layer", "layers", range.baseArrayLayer, range.layerCount, image.array_layers),
+                .image = image.handle,
+                .range = range,
+                .from = detail::use_of(needed),
+                .to = detail::use_of(image.home),
+            });
+    }
+
+    auto commands::state::enter(std::string_view workflow, const buffer::state& buffer) -> void {
+        add(workflow, {
+                          .target = detail::label(buffer.name, "buffer"),
+                          .buffer = buffer.handle,
+                          .from = detail::home_of(buffer.usage, buffer.host),
+                          .to = detail::use_of(vk::access::transfer_dst),
+                      });
+    }
+
+    auto commands::state::leave(std::string_view workflow, const buffer::state& buffer) -> void {
+        add(workflow, {
+                          .target = detail::label(buffer.name, "buffer"),
+                          .buffer = buffer.handle,
+                          .from = detail::use_of(vk::access::transfer_dst),
+                          .to = detail::home_of(buffer.usage, buffer.host),
+                      });
+    }
+
+    auto commands::state::stage(std::string_view call, std::string_view workflow,
+                                std::span<const std::byte> data) -> std::optional<VkBuffer> {
+        const auto info = VkBufferCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = data.size(),
+            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        };
+        const auto allocation_info = VmaAllocationCreateInfo{
+            .flags =
+                VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+            .usage = VMA_MEMORY_USAGE_AUTO,
+        };
+
+        auto staged = detail::retired{.label = "staging"};
+        auto allocated = VmaAllocationInfo{};
+        if (const auto result = vmaCreateBuffer(device->allocator, &info, &allocation_info, &staged.buffer,
+                                                &staged.allocation, &allocated);
+            result != VK_SUCCESS) {
+            const auto error = detail::failure(result, "vmaCreateBuffer").error();
+            fail(error.code(),
+                 std::format("{}: no staging buffer of {} bytes: {}", call, data.size(), error.detail()));
+            return std::nullopt;
+        }
+        staging.push_back(staged);
+
+        std::ranges::copy(data, static_cast<std::byte*>(allocated.pMappedData));
+        if (const auto result = vmaFlushAllocation(device->allocator, staged.allocation, 0, VK_WHOLE_SIZE);
+            result != VK_SUCCESS) {
+            const auto error = detail::failure(result, "vmaFlushAllocation").error();
+            fail(error.code(), std::format("{}: {}", call, error.detail()));
+            return std::nullopt;
+        }
+
+        device->name(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<std::uint64_t>(staged.buffer),
+                     std::format("staging for {}", workflow));
+        trace(workflow, "staging buffer, {} bytes", data.size());
+        return staged.buffer;
+    }
+
     commands::commands(std::unique_ptr<commands::state> state) noexcept : m_state(std::move(state)) {}
 
     commands::commands(commands&& other) noexcept = default;
@@ -218,6 +330,432 @@ namespace rei::gpu::vk {
     auto commands::operator=(commands&& other) noexcept -> commands& = default;
 
     commands::~commands() = default;
+
+    auto commands::upload(const vk::buffer& destination, std::span<const std::byte> data,
+                          std::uint64_t offset) -> void {
+        auto& self = *m_state;
+
+        if (self.failure || !self.usable(destination.m_state, "upload into a buffer", "buffer")) {
+            return;
+        }
+
+        const auto& target = *destination.m_state;
+        const auto call = std::format("upload into {}", detail::quoted(target.name, "buffer"));
+
+        if (!vk::has(target.usage, vk::buffer_usage::transfer_dst)) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: its usage lacks transfer_dst", call));
+            return;
+        }
+        if (!fits(target.size, offset, data.size())) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: {} bytes at offset {} go past its end at {}", call, data.size(),
+                                  offset, target.size));
+            return;
+        }
+        if (data.empty()) {
+            return;
+        }
+
+        const auto workflow = std::format("upload {}", detail::label(target.name, "buffer"));
+        self.begin(workflow);
+
+        const auto staged = self.stage(call, workflow, data);
+        if (!staged) {
+            self.end();
+            return;
+        }
+
+        self.enter(workflow, target);
+        self.flush(workflow);
+
+        const auto region = VkBufferCopy{.srcOffset = 0, .dstOffset = offset, .size = data.size()};
+        self.device->table.vkCmdCopyBuffer(self.pool.buffer, *staged, target.handle, 1, &region);
+        self.trace(workflow, "copy staging → {}", detail::label(target.name, "buffer"));
+
+        self.leave(workflow, target);
+        self.end();
+    }
+
+    auto commands::upload(const vk::image& destination, std::span<const std::byte> pixels,
+                          const vk::image_region& region) -> void {
+        auto& self = *m_state;
+
+        if (self.failure || !self.usable(destination.m_state, "upload into an image", "image")) {
+            return;
+        }
+
+        const auto& target = *destination.m_state;
+        const auto call = std::format("upload into {}", detail::quoted(target.name, "image"));
+        const auto format = detail::info_of(target.format);
+
+        if (!vk::has(target.usage, vk::image_usage::transfer_dst)) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: its usage lacks transfer_dst", call));
+            return;
+        }
+        if (region.buffer_offset != 0) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: region.buffer_offset is {}, and an upload takes its pixels whole",
+                                  call, region.buffer_offset));
+            return;
+        }
+        if (format.planar || !std::has_single_bit(format.aspects) || target.samples != 1) {
+            self.fail(
+                vk::error_code::invalid_argument,
+                std::format("{}: copies into multisampled, multi-planar and depth-stencil images aren't "
+                            "supported",
+                            call));
+            return;
+        }
+        if (region.mip >= target.mip_levels || region.layer >= target.array_layers) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: mip {} layer {} isn't in it, it has {} and {}", call, region.mip,
+                                  region.layer, target.mip_levels, target.array_layers));
+            return;
+        }
+
+        const auto extent = target.extent_of(region.mip);
+        if (const auto expected = level_size(format, extent); pixels.size() != expected) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: {} bytes given, and mip {} of {} {}x{}x{} holds {}", call,
+                                  pixels.size(), region.mip, format.name, extent.width, extent.height,
+                                  extent.depth, expected));
+            return;
+        }
+
+        const auto range = VkImageSubresourceRange{
+            .aspectMask = format.aspects,
+            .baseMipLevel = region.mip,
+            .levelCount = 1,
+            .baseArrayLayer = region.layer,
+            .layerCount = 1,
+        };
+        const auto workflow = std::format("upload {}", detail::label(target.name, "image"));
+        self.begin(workflow);
+
+        const auto staged = self.stage(call, workflow, pixels);
+        if (!staged) {
+            self.end();
+            return;
+        }
+
+        self.enter(workflow, target, range, vk::access::transfer_dst, true);
+        self.flush(workflow);
+
+        const auto copy = VkBufferImageCopy{
+            .imageSubresource =
+                {
+                    .aspectMask = format.aspects,
+                    .mipLevel = region.mip,
+                    .baseArrayLayer = region.layer,
+                    .layerCount = 1,
+                },
+            .imageExtent = {.width = extent.width, .height = extent.height, .depth = extent.depth},
+        };
+        self.device->table.vkCmdCopyBufferToImage(self.pool.buffer, *staged, target.handle,
+                                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        self.trace(workflow, "copy staging → {}",
+                   detail::label(target.name, "image") +
+                       part("mip", "mips", region.mip, 1, target.mip_levels) +
+                       part("layer", "layers", region.layer, 1, target.array_layers));
+
+        self.leave(workflow, target, range, vk::access::transfer_dst, true);
+        self.end();
+    }
+
+    auto commands::copy(const vk::buffer& source, const vk::buffer& destination,
+                        const vk::buffer_region& region) -> void {
+        auto& self = *m_state;
+
+        if (self.failure || !self.usable(source.m_state, "copy from a buffer", "buffer") ||
+            !self.usable(destination.m_state, "copy into a buffer", "buffer")) {
+            return;
+        }
+
+        const auto& origin = *source.m_state;
+        const auto& target = *destination.m_state;
+        const auto call = std::format("copy from {} into {}", detail::quoted(origin.name, "buffer"),
+                                      detail::quoted(target.name, "buffer"));
+        const auto size = region.size.value_or(origin.size - std::min(region.source_offset, origin.size));
+
+        if (!vk::has(origin.usage, vk::buffer_usage::transfer_src) ||
+            !vk::has(target.usage, vk::buffer_usage::transfer_dst)) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: the source needs the transfer_src usage, the destination transfer_dst",
+                                  call));
+            return;
+        }
+        if (!fits(origin.size, region.source_offset, size) ||
+            !fits(target.size, region.destination_offset, size)) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: {} bytes from offset {} to offset {} don't fit in {} and {} bytes",
+                                  call, size, region.source_offset, region.destination_offset, origin.size,
+                                  target.size));
+            return;
+        }
+        if (origin.handle == target.handle && region.source_offset < region.destination_offset + size &&
+            region.destination_offset < region.source_offset + size) {
+            self.fail(vk::error_code::invalid_argument, std::format("{}: the two ranges overlap", call));
+            return;
+        }
+        if (size == 0) {
+            return;
+        }
+
+        const auto workflow = std::format("copy {} → {}", detail::label(origin.name, "buffer"),
+                                          detail::label(target.name, "buffer"));
+        self.begin(workflow);
+        self.enter(workflow, target);
+        self.flush(workflow);
+
+        const auto copy = VkBufferCopy{
+            .srcOffset = region.source_offset,
+            .dstOffset = region.destination_offset,
+            .size = size,
+        };
+        self.device->table.vkCmdCopyBuffer(self.pool.buffer, origin.handle, target.handle, 1, &copy);
+
+        self.leave(workflow, target);
+        self.end();
+    }
+
+    auto commands::copy(const vk::buffer& source, const vk::image& destination,
+                        const vk::image_region& region) -> void {
+        auto& self = *m_state;
+
+        if (self.failure || !self.usable(source.m_state, "copy from a buffer", "buffer") ||
+            !self.usable(destination.m_state, "copy into an image", "image")) {
+            return;
+        }
+
+        const auto& origin = *source.m_state;
+        const auto& target = *destination.m_state;
+        const auto call = std::format("copy from {} into {}", detail::quoted(origin.name, "buffer"),
+                                      detail::quoted(target.name, "image"));
+        const auto format = detail::info_of(target.format);
+
+        if (!vk::has(origin.usage, vk::buffer_usage::transfer_src) ||
+            !vk::has(target.usage, vk::image_usage::transfer_dst)) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: the source needs the transfer_src usage, the destination transfer_dst",
+                                  call));
+            return;
+        }
+        if (format.planar || !std::has_single_bit(format.aspects) || target.samples != 1) {
+            self.fail(
+                vk::error_code::invalid_argument,
+                std::format("{}: copies into multisampled, multi-planar and depth-stencil images aren't "
+                            "supported",
+                            call));
+            return;
+        }
+        if (region.mip >= target.mip_levels || region.layer >= target.array_layers) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: mip {} layer {} isn't in the image, it has {} and {}", call,
+                                  region.mip, region.layer, target.mip_levels, target.array_layers));
+            return;
+        }
+
+        const auto extent = target.extent_of(region.mip);
+        const auto size = level_size(format, extent);
+        const auto alignment = format.aspects == VK_IMAGE_ASPECT_COLOR_BIT ? format.block_size : 4U;
+        if (region.buffer_offset % alignment != 0 || !fits(origin.size, region.buffer_offset, size)) {
+            self.fail(
+                vk::error_code::invalid_argument,
+                std::format("{}: mip {} needs {} bytes at an offset that is a multiple of {}, and the buffer "
+                            "has {} at offset {}",
+                            call, region.mip, size, alignment, origin.size, region.buffer_offset));
+            return;
+        }
+
+        const auto range = VkImageSubresourceRange{
+            .aspectMask = format.aspects,
+            .baseMipLevel = region.mip,
+            .levelCount = 1,
+            .baseArrayLayer = region.layer,
+            .layerCount = 1,
+        };
+        const auto workflow = std::format("copy {} → {}", detail::label(origin.name, "buffer"),
+                                          detail::label(target.name, "image"));
+        self.begin(workflow);
+        self.enter(workflow, target, range, vk::access::transfer_dst, true);
+        self.flush(workflow);
+
+        const auto copy = VkBufferImageCopy{
+            .bufferOffset = region.buffer_offset,
+            .imageSubresource =
+                {
+                    .aspectMask = format.aspects,
+                    .mipLevel = region.mip,
+                    .baseArrayLayer = region.layer,
+                    .layerCount = 1,
+                },
+            .imageExtent = {.width = extent.width, .height = extent.height, .depth = extent.depth},
+        };
+        self.device->table.vkCmdCopyBufferToImage(self.pool.buffer, origin.handle, target.handle,
+                                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+
+        self.leave(workflow, target, range, vk::access::transfer_dst, true);
+        self.end();
+    }
+
+    auto commands::copy(const vk::image& source, const vk::buffer& destination,
+                        const vk::image_region& region) -> void {
+        auto& self = *m_state;
+
+        if (self.failure || !self.usable(source.m_state, "copy from an image", "image") ||
+            !self.usable(destination.m_state, "copy into a buffer", "buffer")) {
+            return;
+        }
+
+        const auto& origin = *source.m_state;
+        const auto& target = *destination.m_state;
+        const auto call = std::format("copy from {} into {}", detail::quoted(origin.name, "image"),
+                                      detail::quoted(target.name, "buffer"));
+        const auto format = detail::info_of(origin.format);
+
+        if (!vk::has(origin.usage, vk::image_usage::transfer_src) ||
+            !vk::has(target.usage, vk::buffer_usage::transfer_dst)) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: the source needs the transfer_src usage, the destination transfer_dst",
+                                  call));
+            return;
+        }
+        if (format.planar || !std::has_single_bit(format.aspects) || origin.samples != 1) {
+            self.fail(
+                vk::error_code::invalid_argument,
+                std::format("{}: copies from multisampled, multi-planar and depth-stencil images aren't "
+                            "supported",
+                            call));
+            return;
+        }
+        if (region.mip >= origin.mip_levels || region.layer >= origin.array_layers) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: mip {} layer {} isn't in the image, it has {} and {}", call,
+                                  region.mip, region.layer, origin.mip_levels, origin.array_layers));
+            return;
+        }
+
+        const auto extent = origin.extent_of(region.mip);
+        const auto size = level_size(format, extent);
+        const auto alignment = format.aspects == VK_IMAGE_ASPECT_COLOR_BIT ? format.block_size : 4U;
+        if (region.buffer_offset % alignment != 0 || !fits(target.size, region.buffer_offset, size)) {
+            self.fail(
+                vk::error_code::invalid_argument,
+                std::format("{}: mip {} needs {} bytes at an offset that is a multiple of {}, and the buffer "
+                            "has {} at offset {}",
+                            call, region.mip, size, alignment, target.size, region.buffer_offset));
+            return;
+        }
+
+        const auto range = VkImageSubresourceRange{
+            .aspectMask = format.aspects,
+            .baseMipLevel = region.mip,
+            .levelCount = 1,
+            .baseArrayLayer = region.layer,
+            .layerCount = 1,
+        };
+        const auto workflow = std::format("copy {} → {}", detail::label(origin.name, "image"),
+                                          detail::label(target.name, "buffer"));
+        self.begin(workflow);
+        self.enter(workflow, origin, range, vk::access::transfer_src, false);
+        self.enter(workflow, target);
+        self.flush(workflow);
+
+        const auto copy = VkBufferImageCopy{
+            .bufferOffset = region.buffer_offset,
+            .imageSubresource =
+                {
+                    .aspectMask = format.aspects,
+                    .mipLevel = region.mip,
+                    .baseArrayLayer = region.layer,
+                    .layerCount = 1,
+                },
+            .imageExtent = {.width = extent.width, .height = extent.height, .depth = extent.depth},
+        };
+        self.device->table.vkCmdCopyImageToBuffer(
+            self.pool.buffer, origin.handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target.handle, 1, &copy);
+
+        self.leave(workflow, origin, range, vk::access::transfer_src, false);
+        self.leave(workflow, target);
+        self.end();
+    }
+
+    auto commands::copy(const vk::image& source, const vk::image& destination) -> void {
+        auto& self = *m_state;
+
+        if (self.failure || !self.usable(source.m_state, "copy from an image", "image") ||
+            !self.usable(destination.m_state, "copy into an image", "image")) {
+            return;
+        }
+
+        const auto& origin = *source.m_state;
+        const auto& target = *destination.m_state;
+        const auto call = std::format("copy from {} into {}", detail::quoted(origin.name, "image"),
+                                      detail::quoted(target.name, "image"));
+        const auto origin_format = detail::info_of(origin.format);
+        const auto target_format = detail::info_of(target.format);
+
+        if (!vk::has(origin.usage, vk::image_usage::transfer_src) ||
+            !vk::has(target.usage, vk::image_usage::transfer_dst)) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: the source needs the transfer_src usage, the destination transfer_dst",
+                                  call));
+            return;
+        }
+        if (origin.handle == target.handle) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: an image can't be copied onto itself", call));
+            return;
+        }
+        if (origin_format.block_size != target_format.block_size ||
+            origin_format.block.width != target_format.block.width ||
+            origin_format.block.height != target_format.block.height ||
+            origin_format.aspects != target_format.aspects || origin_format.planar || target_format.planar) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: {} and {} aren't size-compatible", call, origin_format.name,
+                                  target_format.name));
+            return;
+        }
+        if (origin.extent.width != target.extent.width || origin.extent.height != target.extent.height ||
+            origin.extent.depth != target.extent.depth || origin.mip_levels != target.mip_levels ||
+            origin.array_layers != target.array_layers || origin.samples != target.samples) {
+            self.fail(vk::error_code::invalid_argument,
+                      std::format("{}: the two differ in extent, mip levels, array layers or samples", call));
+            return;
+        }
+
+        const auto workflow = std::format("copy {} → {}", detail::label(origin.name, "image"),
+                                          detail::label(target.name, "image"));
+        self.begin(workflow);
+        self.enter(workflow, origin, origin.range(), vk::access::transfer_src, false);
+        self.enter(workflow, target, target.range(), vk::access::transfer_dst, true);
+        self.flush(workflow);
+
+        auto regions = std::vector<VkImageCopy>{};
+        for (auto mip = 0U; mip < origin.mip_levels; mip++) {
+            const auto extent = origin.extent_of(mip);
+            const auto layers = VkImageSubresourceLayers{
+                .aspectMask = origin_format.aspects,
+                .mipLevel = mip,
+                .baseArrayLayer = 0,
+                .layerCount = origin.array_layers,
+            };
+            regions.push_back({
+                .srcSubresource = layers,
+                .dstSubresource = layers,
+                .extent = {.width = extent.width, .height = extent.height, .depth = extent.depth},
+            });
+        }
+        self.device->table.vkCmdCopyImage(
+            self.pool.buffer, origin.handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target.handle,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<std::uint32_t>(regions.size()), regions.data());
+
+        self.leave(workflow, origin, origin.range(), vk::access::transfer_src, false);
+        self.leave(workflow, target, target.range(), vk::access::transfer_dst, true);
+        self.end();
+    }
 
     auto commands::barrier(std::initializer_list<vk::transition> transitions) -> void {
         barrier(std::span{transitions.begin(), transitions.size()});

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <initializer_list>
 #include <memory>
@@ -33,6 +35,18 @@ namespace rei::gpu::vk {
         vk::access to;
     };
 
+    struct buffer_region {
+        std::uint64_t source_offset{};
+        std::uint64_t destination_offset{};
+        std::optional<std::uint64_t> size{};
+    };
+
+    struct image_region {
+        std::uint32_t mip{};
+        std::uint32_t layer{};
+        std::uint64_t buffer_offset{};
+    };
+
     class commands {
       private:
         friend class queue;
@@ -47,6 +61,18 @@ namespace rei::gpu::vk {
         commands(commands&& other) noexcept;
         auto operator=(commands&& other) noexcept -> commands&;
         ~commands();
+
+        auto upload(const vk::buffer& destination, std::span<const std::byte> data, std::uint64_t offset = 0)
+            -> void;
+        auto upload(const vk::image& destination, std::span<const std::byte> pixels,
+                    const vk::image_region& region = {}) -> void;
+        auto copy(const vk::buffer& source, const vk::buffer& destination,
+                  const vk::buffer_region& region = {}) -> void;
+        auto copy(const vk::buffer& source, const vk::image& destination, const vk::image_region& region = {})
+            -> void;
+        auto copy(const vk::image& source, const vk::buffer& destination, const vk::image_region& region = {})
+            -> void;
+        auto copy(const vk::image& source, const vk::image& destination) -> void;
 
         auto barrier(std::initializer_list<vk::transition> transitions) -> void;
         auto barrier(std::span<const vk::transition> transitions) -> void;
