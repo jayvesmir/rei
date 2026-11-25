@@ -63,14 +63,11 @@ namespace rei::gpu::vk {
       private:
         friend class commands;
 
-        struct scope;
-
         vk::commands& m_commands;
         bool m_open{true};
 
         explicit compute_pass(vk::commands& commands) noexcept;
 
-        auto _recording(std::string_view call) -> bool;
         auto _dispatching(std::string_view call) -> bool;
         auto _push_constants(std::span<const std::byte> data) -> void;
 

@@ -82,6 +82,18 @@ namespace rei::gpu::vk {
         return !failure;
     }
 
+    auto commands::state::alive(std::string_view call, const image_view::state& view)
+        -> std::shared_ptr<image::state> {
+        auto image = view.image.lock();
+        if (!image) {
+            fail(vk::error_code::invalid_argument,
+                 std::format("{}: {} was destroyed", call,
+                             view.own ? "it" : detail::quoted(view.image_name, "its image")));
+        }
+
+        return image;
+    }
+
     auto commands::state::begin(std::string_view workflow) const -> void {
         if (!device->labeling) {
             return;
@@ -311,12 +323,13 @@ namespace rei::gpu::vk {
         auto& self = *m_state;
 
         if (self.outside("compute")) {
-            self.compute.emplace(compute_pass::scope{
-                .label = detail::quoted(options.name, "compute pass"),
-                .workflow = options.name.empty() ? "compute" : std::format("compute {}", options.name),
-                .concurrent = options.concurrent,
-            });
-            self.begin(self.compute->workflow);
+            auto& scope = self.compute.emplace();
+            scope.label = detail::quoted(options.name, "compute pass");
+            scope.workflow = options.name.empty() ? "compute" : std::format("compute {}", options.name);
+            scope.bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
+            scope.concurrent = options.concurrent;
+
+            self.begin(scope.workflow);
         }
 
         return vk::compute_pass{*this};
@@ -805,13 +818,8 @@ namespace rei::gpu::vk {
             }
 
             const auto& view = *target.m_state;
-            const auto image = view.image.lock();
+            const auto image = self.alive(std::format("barrier on {}", view.quoted()), view);
             if (!image) {
-                self.fail(vk::error_code::invalid_argument,
-                          std::format("barrier on {}: {} was destroyed",
-                                      detail::quoted(view.own ? view.image_name : view.name,
-                                                     view.own ? "image" : "image view"),
-                                      view.own ? "it" : detail::quoted(view.image_name, "its image")));
                 return;
             }
 

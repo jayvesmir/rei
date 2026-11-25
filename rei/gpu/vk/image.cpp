@@ -212,6 +212,10 @@ namespace rei::gpu::vk {
         device->retire({.label = own ? std::string{} : detail::label(name, "image view"), .view = handle});
     }
 
+    auto image_view::state::quoted() const -> std::string {
+        return detail::quoted(own ? image_name : name, own ? "image" : "image view");
+    }
+
     sampler::state::~state() {
         if (handle == VK_NULL_HANDLE) {
             return;

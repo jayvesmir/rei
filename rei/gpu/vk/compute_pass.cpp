@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <format>
 #include <initializer_list>
-#include <mutex>
 #include <span>
 #include <string_view>
 #include <utility>
@@ -22,107 +21,43 @@ namespace rei::gpu::vk {
         end();
     }
 
-    auto compute_pass::_recording(std::string_view call) -> bool {
-        auto& self = *m_commands.m_state;
-
-        if (!m_open) {
-            self.fail(vk::error_code::invalid_argument,
-                      std::format("{} in a compute pass that has ended", call));
-        }
-
-        return !self.failure;
-    }
-
     auto compute_pass::_dispatching(std::string_view call) -> bool {
-        if (!_recording(call)) {
-            return false;
-        }
-
         auto& self = *m_commands.m_state;
-        auto& scope = *self.compute;
 
-        if (!scope.pipeline) {
-            self.fail(vk::error_code::invalid_argument,
-                      std::format("{} in {}: no pipeline is bound", call, scope.label));
+        if (!self.inside(m_open, call, "compute pass") || !self.readable(*self.compute, call)) {
             return false;
         }
 
-        const auto& pipeline = *scope.pipeline;
-        for (auto index = 0uz; index < pipeline.reads.size(); index++) {
-            const auto& reads = pipeline.reads[index];
-            const auto& bound = scope.sets[index];
+        auto& scope = *self.compute;
+        const auto writes = scope.pipeline->writes;
 
-            if (!reads.empty() && !bound.pushed && !bound.allocated) {
-                self.fail(vk::error_code::invalid_argument,
-                          std::format("{} in {}: {} reads set {}, and nothing is bound or pushed there", call,
-                                      scope.label, detail::quoted(pipeline.name, "compute pipeline"), index));
-                return false;
-            }
-            if (!bound.allocated) {
-                continue;
-            }
-
-            for (const auto& reference : bound.allocated->references) {
-                if (std::ranges::contains(reads, reference.binding) && reference.resource.expired()) {
-                    self.fail(vk::error_code::invalid_argument,
-                              std::format("{} in {}: {} binding {} refers to {}, which was destroyed", call,
-                                          scope.label,
-                                          detail::quoted(bound.allocated->name, "descriptor set"),
-                                          reference.binding, reference.target));
-                    return false;
-                }
-            }
-        }
-
-        if (pipeline.writes && !scope.wrote) {
+        if (writes && !scope.wrote) {
             self.add(scope.workflow,
                      {.target = "memory", .from = detail::earlier_work, .to = detail::compute_work});
-        } else if (!scope.concurrent && (pipeline.writes || scope.last_wrote)) {
+        } else if (!scope.concurrent && (writes || scope.last_wrote)) {
             self.add(scope.workflow,
                      {.target = "memory", .from = detail::compute_writes, .to = detail::compute_work});
         }
         self.flush(scope.workflow);
 
-        scope.wrote = scope.wrote || pipeline.writes;
-        scope.last_wrote = pipeline.writes;
+        scope.wrote = scope.wrote || writes;
+        scope.last_wrote = writes;
 
         return true;
     }
 
     auto compute_pass::_push_constants(std::span<const std::byte> data) -> void {
-        if (!_recording("push_constants")) {
-            return;
-        }
-
         auto& self = *m_commands.m_state;
-        const auto& scope = *self.compute;
 
-        if (!scope.pipeline || scope.pipeline->adopted) {
-            self.fail(vk::error_code::invalid_argument,
-                      std::format("push_constants in {}: {}", scope.label,
-                                  scope.pipeline ? "an adopted pipeline takes them through raw calls"
-                                                 : "no pipeline is bound"));
-            return;
+        if (self.inside(m_open, "push_constants", "compute pass")) {
+            self.push_constants(*self.compute, data);
         }
-
-        const auto& pipeline = *scope.pipeline;
-        if (data.size() != pipeline.push_constant_size) {
-            self.fail(
-                vk::error_code::invalid_argument,
-                std::format("push_constants in {}: {} bytes given, and the push_constant_size of {} is {}",
-                            scope.label, data.size(), detail::quoted(pipeline.name, "compute pipeline"),
-                            pipeline.push_constant_size));
-            return;
-        }
-
-        self.device->table.vkCmdPushConstants(self.pool.buffer, pipeline.layout, VK_SHADER_STAGE_ALL, 0,
-                                              pipeline.push_constant_size, data.data());
     }
 
     auto compute_pass::bind(const vk::compute_pipeline& pipeline) -> void {
         auto& self = *m_commands.m_state;
 
-        if (!_recording("bind") ||
+        if (!self.inside(m_open, "bind", "compute pass") ||
             !self.usable(pipeline.m_state, "bind in a compute pass", "compute pipeline")) {
             return;
         }
@@ -138,58 +73,10 @@ namespace rei::gpu::vk {
     auto compute_pass::bind(std::uint32_t set, const vk::descriptor_set& descriptors) -> void {
         auto& self = *m_commands.m_state;
 
-        if (!_recording("bind") ||
-            !self.usable(descriptors.m_state, "bind in a compute pass", "descriptor set")) {
-            return;
+        if (self.inside(m_open, "bind", "compute pass") &&
+            self.usable(descriptors.m_state, "bind in a compute pass", "descriptor set")) {
+            self.bind(*self.compute, set, descriptors.m_state);
         }
-
-        auto& scope = *self.compute;
-        const auto& bound = *descriptors.m_state;
-
-        if (!scope.pipeline) {
-            self.fail(vk::error_code::invalid_argument,
-                      std::format("bind of {} in {}: no pipeline is bound",
-                                  detail::quoted(bound.name, "descriptor set"), scope.label));
-            return;
-        }
-
-        const auto& pipeline = *scope.pipeline;
-        if (!pipeline.adopted) {
-            if (set >= pipeline.sets.size()) {
-                self.fail(vk::error_code::invalid_argument,
-                          std::format("bind of {} in {}: set {} isn't in {}, which has {}",
-                                      detail::quoted(bound.name, "descriptor set"), scope.label, set,
-                                      detail::quoted(pipeline.name, "compute pipeline"),
-                                      pipeline.sets.size()));
-                return;
-            }
-
-            const auto& expected = pipeline.sets[set].m_state;
-            if (bound.layout != expected &&
-                (expected->pushed || bound.layout->bindings != expected->bindings)) {
-                self.fail(vk::error_code::invalid_argument,
-                          std::format("bind of {} in {}: it was made with {}, and set {} of {} has {}",
-                                      detail::quoted(bound.name, "descriptor set"), scope.label,
-                                      detail::quoted(bound.layout->name, "set layout"), set,
-                                      detail::quoted(pipeline.name, "compute pipeline"),
-                                      detail::quoted(expected->name, "set layout")));
-                return;
-            }
-
-            scope.sets[set] = {.allocated = descriptors.m_state};
-        }
-
-        if (std::ranges::any_of(bound.references, [](const detail::reference& reference) -> bool {
-                return reference.resource.expired();
-            })) {
-            const auto lock = std::scoped_lock{self.device->mutex};
-            for (auto& item : self.device->retired) {
-                item.serial = std::max(item.serial, self.serial);
-            }
-        }
-
-        self.device->table.vkCmdBindDescriptorSets(self.pool.buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-                                                   pipeline.layout, set, 1, &bound.handle, 0, nullptr);
     }
 
     auto compute_pass::push_descriptors(std::uint32_t set, std::initializer_list<vk::descriptor> descriptors)
@@ -199,42 +86,11 @@ namespace rei::gpu::vk {
 
     auto compute_pass::push_descriptors(std::uint32_t set, std::span<const vk::descriptor> descriptors)
         -> void {
-        if (!_recording("push_descriptors")) {
-            return;
-        }
-
         auto& self = *m_commands.m_state;
-        auto& scope = *self.compute;
 
-        if (!scope.pipeline || scope.pipeline->adopted) {
-            self.fail(vk::error_code::invalid_argument,
-                      std::format("push_descriptors in {}: {}", scope.label,
-                                  scope.pipeline ? "an adopted pipeline takes them through raw calls"
-                                                 : "no pipeline is bound"));
-            return;
+        if (self.inside(m_open, "push_descriptors", "compute pass")) {
+            self.push_descriptors(*self.compute, set, descriptors);
         }
-
-        const auto& pipeline = *scope.pipeline;
-        if (set >= pipeline.sets.size() || !pipeline.sets[set].m_state->pushed) {
-            self.fail(
-                vk::error_code::invalid_argument,
-                std::format("push_descriptors in {}: set {} of {} {}", scope.label, set,
-                            detail::quoted(pipeline.name, "compute pipeline"),
-                            set < pipeline.sets.size() ? "has a layout that isn't pushed" : "doesn't exist"));
-            return;
-        }
-
-        const auto resolved = pipeline.sets[set].m_state->resolve(descriptors, VK_NULL_HANDLE);
-        if (!resolved) {
-            self.fail(vk::error_code::invalid_argument,
-                      std::format("push_descriptors in {}: {}", scope.label, resolved.error()));
-            return;
-        }
-
-        scope.sets[set] = {.pushed = true};
-        self.device->table.vkCmdPushDescriptorSet(
-            self.pool.buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.layout, set,
-            static_cast<std::uint32_t>(resolved->writes.size()), resolved->writes.data());
     }
 
     auto compute_pass::dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z)
@@ -250,7 +106,7 @@ namespace rei::gpu::vk {
     auto compute_pass::dispatch_indirect(const vk::buffer& arguments, std::uint64_t offset) -> void {
         auto& self = *m_commands.m_state;
 
-        if (!_recording("dispatch_indirect") ||
+        if (!self.inside(m_open, "dispatch_indirect", "compute pass") ||
             !self.usable(arguments.m_state, "dispatch_indirect in a compute pass", "buffer")) {
             return;
         }

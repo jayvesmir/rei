@@ -345,6 +345,8 @@ namespace rei::gpu::vk {
         bool own{};
 
         ~state();
+
+        [[nodiscard]] auto quoted() const -> std::string;
     };
 
     struct sampler::state {
@@ -401,29 +403,33 @@ namespace rei::gpu::vk {
         ~state();
     };
 
-    struct compute_pass::scope {
+    struct commands::state {
         struct bound_set {
             bool pushed{};
             std::shared_ptr<const vk::descriptor_set::state> allocated;
         };
 
-        std::string label;
-        std::string workflow;
-        bool concurrent{};
-        std::shared_ptr<const vk::compute_pipeline::state> pipeline;
-        std::vector<scope::bound_set> sets;
-        bool wrote{};
-        bool last_wrote{};
-    };
+        struct scope {
+            std::string label;
+            std::string workflow;
+            VkPipelineBindPoint bind_point{};
+            std::shared_ptr<const detail::pipeline_state> pipeline;
+            std::vector<state::bound_set> sets;
+            bool wrote{};
+        };
 
-    struct commands::state {
+        struct compute_scope : state::scope {
+            bool concurrent{};
+            bool last_wrote{};
+        };
+
         std::shared_ptr<vk::device::state> device;
         std::uint64_t serial{};
         std::string name;
         detail::command_pool pool{};
         std::vector<detail::retired> staging;
         std::vector<detail::barrier> pending;
-        std::optional<vk::compute_pass::scope> compute;
+        std::optional<state::compute_scope> compute;
         std::optional<rei::error> failure;
         bool settled{};
 
@@ -434,6 +440,8 @@ namespace rei::gpu::vk {
 
         auto fail(std::error_code code, std::string detail) -> void;
         auto outside(std::string_view call) -> bool;
+        auto inside(bool open, std::string_view call, std::string_view pass) -> bool;
+        auto alive(std::string_view call, const image_view::state& view) -> std::shared_ptr<image::state>;
 
         template <typename StateType>
         auto usable(const std::shared_ptr<StateType>& resource, std::string_view call, std::string_view kind)
@@ -472,5 +480,12 @@ namespace rei::gpu::vk {
 
         auto stage(std::string_view call, std::string_view workflow, std::span<const std::byte> data)
             -> std::optional<VkBuffer>;
+
+        auto bind(state::scope& scope, std::uint32_t set,
+                  const std::shared_ptr<vk::descriptor_set::state>& descriptors) -> void;
+        auto push_descriptors(state::scope& scope, std::uint32_t set,
+                              std::span<const vk::descriptor> descriptors) -> void;
+        auto push_constants(const state::scope& scope, std::span<const std::byte> data) -> void;
+        auto readable(const state::scope& scope, std::string_view call) -> bool;
     };
 } // namespace rei::gpu::vk

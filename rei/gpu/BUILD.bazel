@@ -57,6 +57,7 @@ cc_library(
         "vk/feature.cpp",
         "vk/image.cpp",
         "vk/instance.cpp",
+        "vk/pass.cpp",
         "vk/pipeline.cpp",
         "vk/queue.cpp",
         "vk/shader.cpp",

@@ -36,7 +36,7 @@ namespace rei::gpu::vk {
 
     class set_layout {
       private:
-        friend class compute_pass;
+        friend class commands;
         friend class compute_pipeline;
         friend class descriptor_set;
 
@@ -98,6 +98,7 @@ namespace rei::gpu::vk {
 
     class descriptor_set {
       private:
+        friend class commands;
         friend class compute_pass;
 
         struct state;
