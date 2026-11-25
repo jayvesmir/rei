@@ -10,6 +10,7 @@ bazel_dep(name = "aws-lc", version = "5.1.0.bcr.3")
 bazel_dep(name = "highway", version = "1.4.0.bcr.1")
 bazel_dep(name = "vulkan_headers", version = "1.4.349")
 bazel_dep(name = "vulkan_memory_allocator", version = "3.3.0")
+bazel_dep(name = "spirv_tools", version = "2026.3")
 
 bazel_dep(name = "googletest", version = "1.18.0", dev_dependency = True)
 bazel_dep(name = "nlohmann_json", version = "3.12.0.bcr.2", dev_dependency = True)
@@ -62,6 +63,15 @@ http_archive(
     sha256 = "078a9411298e4e0f60f5f5398c890783427c25a414619294ca8e69587bbd5eae",
     strip_prefix = "volk-vulkan-sdk-1.4.350.1",
     build_file = "//third_party:volk.bzl",
+)
+
+# Shader reflection for gpu::vk.
+http_archive(
+    name = "spirv_reflect",
+    url = "https://github.com/KhronosGroup/SPIRV-Reflect/archive/refs/tags/vulkan-sdk-1.4.350.1.tar.gz",
+    sha256 = "e045cdd7598211cdbaf39791151bc526a9844401d615579e4959966d2317bdd7",
+    strip_prefix = "SPIRV-Reflect-vulkan-sdk-1.4.350.1",
+    build_file = "//third_party:spirv_reflect.bzl",
 )
 
 # Conformance cases for formats::toml.
