@@ -275,7 +275,7 @@ namespace rei::gpu::vk {
 
         auto retire(detail::retired item) -> void;
         auto collect() -> void;
-        auto release(std::vector<detail::retired> items) -> void;
+        auto release(std::span<const detail::retired> items) -> void;
 
         auto name(VkObjectType type, std::uint64_t object, std::string_view name) const -> void;
 
@@ -398,6 +398,21 @@ namespace rei::gpu::vk {
         ~state();
     };
 
+    struct compute_pass::scope {
+        struct bound_set {
+            bool pushed{};
+            std::shared_ptr<const vk::descriptor_set::state> allocated;
+        };
+
+        std::string label;
+        std::string workflow;
+        bool concurrent{};
+        std::shared_ptr<const vk::compute_pipeline::state> pipeline;
+        std::vector<scope::bound_set> sets;
+        bool wrote{};
+        bool last_wrote{};
+    };
+
     struct commands::state {
         std::shared_ptr<vk::device::state> device;
         std::uint64_t serial{};
@@ -405,6 +420,7 @@ namespace rei::gpu::vk {
         detail::command_pool pool{};
         std::vector<detail::retired> staging;
         std::vector<detail::barrier> pending;
+        std::optional<vk::compute_pass::scope> compute;
         std::optional<rei::error> failure;
         bool settled{};
 
@@ -414,6 +430,7 @@ namespace rei::gpu::vk {
         ~state();
 
         auto fail(std::error_code code, std::string detail) -> void;
+        auto outside(std::string_view call) -> bool;
 
         template <typename StateType>
         auto usable(const std::shared_ptr<StateType>& resource, std::string_view call, std::string_view kind)

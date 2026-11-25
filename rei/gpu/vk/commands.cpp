@@ -74,6 +74,14 @@ namespace rei::gpu::vk {
         }
     }
 
+    auto commands::state::outside(std::string_view call) -> bool {
+        if (compute) {
+            fail(vk::error_code::invalid_argument, std::format("{}: {} is still open", call, compute->label));
+        }
+
+        return !failure;
+    }
+
     auto commands::state::begin(std::string_view workflow) const -> void {
         if (!device->labeling) {
             return;
@@ -134,6 +142,7 @@ namespace rei::gpu::vk {
             return;
         }
 
+        auto memory = std::vector<VkMemoryBarrier2>{};
         auto images = std::vector<VkImageMemoryBarrier2>{};
         auto buffers = std::vector<VkBufferMemoryBarrier2>{};
         for (const auto& barrier : pending) {
@@ -151,7 +160,7 @@ namespace rei::gpu::vk {
                     .image = barrier.image,
                     .subresourceRange = barrier.range,
                 });
-            } else {
+            } else if (barrier.buffer != VK_NULL_HANDLE) {
                 buffers.push_back({
                     .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
                     .srcStageMask = barrier.from.stages,
@@ -164,11 +173,21 @@ namespace rei::gpu::vk {
                     .offset = 0,
                     .size = VK_WHOLE_SIZE,
                 });
+            } else {
+                memory.push_back({
+                    .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+                    .srcStageMask = barrier.from.stages,
+                    .srcAccessMask = barrier.from.access,
+                    .dstStageMask = barrier.to.stages,
+                    .dstAccessMask = barrier.to.access,
+                });
             }
         }
 
         const auto dependency = VkDependencyInfo{
             .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .memoryBarrierCount = static_cast<std::uint32_t>(memory.size()),
+            .pMemoryBarriers = memory.data(),
             .bufferMemoryBarrierCount = static_cast<std::uint32_t>(buffers.size()),
             .pBufferMemoryBarriers = buffers.data(),
             .imageMemoryBarrierCount = static_cast<std::uint32_t>(images.size()),
@@ -287,11 +306,27 @@ namespace rei::gpu::vk {
 
     commands::~commands() = default;
 
+    auto commands::compute(const vk::compute_options& options) -> vk::compute_pass {
+        auto& self = *m_state;
+
+        if (self.outside("compute")) {
+            self.compute.emplace(compute_pass::scope{
+                .label = detail::quoted(options.name, "compute pass"),
+                .workflow = options.name.empty() ? "compute" : std::format("compute {}", options.name),
+                .concurrent = options.concurrent,
+            });
+            self.begin(self.compute->workflow);
+        }
+
+        return vk::compute_pass{*this};
+    }
+
     auto commands::upload(const vk::buffer& destination, std::span<const std::byte> data,
                           std::uint64_t offset) -> void {
         auto& self = *m_state;
 
-        if (self.failure || !self.usable(destination.m_state, "upload into a buffer", "buffer")) {
+        if (!self.outside("upload into a buffer") ||
+            !self.usable(destination.m_state, "upload into a buffer", "buffer")) {
             return;
         }
 
@@ -337,7 +372,8 @@ namespace rei::gpu::vk {
                           const vk::image_region& region) -> void {
         auto& self = *m_state;
 
-        if (self.failure || !self.usable(destination.m_state, "upload into an image", "image")) {
+        if (!self.outside("upload into an image") ||
+            !self.usable(destination.m_state, "upload into an image", "image")) {
             return;
         }
 
@@ -421,7 +457,8 @@ namespace rei::gpu::vk {
                         const vk::buffer_region& region) -> void {
         auto& self = *m_state;
 
-        if (self.failure || !self.usable(source.m_state, "copy from a buffer", "buffer") ||
+        if (!self.outside("copy from a buffer") ||
+            !self.usable(source.m_state, "copy from a buffer", "buffer") ||
             !self.usable(destination.m_state, "copy into a buffer", "buffer")) {
             return;
         }
@@ -477,7 +514,8 @@ namespace rei::gpu::vk {
                         const vk::image_region& region) -> void {
         auto& self = *m_state;
 
-        if (self.failure || !self.usable(source.m_state, "copy from a buffer", "buffer") ||
+        if (!self.outside("copy from a buffer") ||
+            !self.usable(source.m_state, "copy from a buffer", "buffer") ||
             !self.usable(destination.m_state, "copy into an image", "image")) {
             return;
         }
@@ -557,7 +595,8 @@ namespace rei::gpu::vk {
                         const vk::image_region& region) -> void {
         auto& self = *m_state;
 
-        if (self.failure || !self.usable(source.m_state, "copy from an image", "image") ||
+        if (!self.outside("copy from an image") ||
+            !self.usable(source.m_state, "copy from an image", "image") ||
             !self.usable(destination.m_state, "copy into a buffer", "buffer")) {
             return;
         }
@@ -638,7 +677,8 @@ namespace rei::gpu::vk {
     auto commands::copy(const vk::image& source, const vk::image& destination) -> void {
         auto& self = *m_state;
 
-        if (self.failure || !self.usable(source.m_state, "copy from an image", "image") ||
+        if (!self.outside("copy from an image") ||
+            !self.usable(source.m_state, "copy from an image", "image") ||
             !self.usable(destination.m_state, "copy into an image", "image")) {
             return;
         }
@@ -716,6 +756,10 @@ namespace rei::gpu::vk {
 
     auto commands::barrier(std::span<const vk::transition> transitions) -> void {
         auto& self = *m_state;
+
+        if (!self.outside("barrier")) {
+            return;
+        }
 
         for (const auto& transition : transitions) {
             if (self.failure) {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -7,12 +9,17 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
+#include <type_traits>
 
 #include <vulkan/vulkan_core.h>
 
 #include "rei/gpu/vk/buffer.hpp"
+#include "rei/gpu/vk/descriptor.hpp"
 #include "rei/gpu/vk/device.hpp"
 #include "rei/gpu/vk/image.hpp"
+#include "rei/gpu/vk/pipeline.hpp"
 #include "rei/gpu/vk/vocabulary.hpp"
 
 namespace rei::gpu::vk {
@@ -47,8 +54,50 @@ namespace rei::gpu::vk {
         std::uint64_t buffer_offset{};
     };
 
+    struct compute_options {
+        bool concurrent{false};
+        std::string name{};
+    };
+
+    class compute_pass {
+      private:
+        friend class commands;
+
+        struct scope;
+
+        vk::commands& m_commands;
+        bool m_open{true};
+
+        explicit compute_pass(vk::commands& commands) noexcept;
+
+        auto _recording(std::string_view call) -> bool;
+        auto _dispatching(std::string_view call) -> bool;
+        auto _push_constants(std::span<const std::byte> data) -> void;
+
+      public:
+        compute_pass(compute_pass&& other) = delete;
+        ~compute_pass();
+
+        auto bind(const vk::compute_pipeline& pipeline) -> void;
+        auto bind(std::uint32_t set, const vk::descriptor_set& descriptors) -> void;
+        auto push_descriptors(std::uint32_t set, std::initializer_list<vk::descriptor> descriptors) -> void;
+        auto push_descriptors(std::uint32_t set, std::span<const vk::descriptor> descriptors) -> void;
+
+        template <typename ValueType>
+            requires std::is_trivially_copyable_v<ValueType>
+        auto push_constants(const ValueType& value) -> void {
+            _push_constants(std::bit_cast<std::array<std::byte, sizeof(ValueType)>>(value));
+        }
+
+        auto dispatch(std::uint32_t groups_x, std::uint32_t groups_y = 1, std::uint32_t groups_z = 1) -> void;
+        auto dispatch_indirect(const vk::buffer& arguments, std::uint64_t offset = 0) -> void;
+
+        auto end() -> void;
+    };
+
     class commands {
       private:
+        friend class compute_pass;
         friend class queue;
 
         struct state;
@@ -61,6 +110,8 @@ namespace rei::gpu::vk {
         commands(commands&& other) noexcept;
         auto operator=(commands&& other) noexcept -> commands&;
         ~commands();
+
+        [[nodiscard]] auto compute(const vk::compute_options& options = {}) -> vk::compute_pass;
 
         auto upload(const vk::buffer& destination, std::span<const std::byte> data, std::uint64_t offset = 0)
             -> void;

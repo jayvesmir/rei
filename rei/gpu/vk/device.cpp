@@ -167,7 +167,7 @@ namespace rei::gpu::vk {
         }
 
         table.vkDeviceWaitIdle(handle);
-        release(std::exchange(retired, {}));
+        release(retired);
         for (const auto& pool : free_pools) {
             table.vkDestroyCommandPool(handle, pool.pool, nullptr);
         }
@@ -245,7 +245,7 @@ namespace rei::gpu::vk {
             return;
         }
 
-        auto freeable = std::vector<detail::retired>{};
+        auto freed = std::string{};
         {
             const auto lock = std::scoped_lock{mutex};
             std::erase_if(unfinished, [&](const auto& entry) -> bool {
@@ -253,32 +253,29 @@ namespace rei::gpu::vk {
             });
 
             const auto oldest = unfinished.empty() ? next_serial : unfinished.begin()->first;
+            auto freeable = std::vector<detail::retired>{};
             auto kept = std::vector<detail::retired>{};
             for (auto& item : retired) {
                 (item.serial < oldest ? freeable : kept).push_back(std::move(item));
             }
             retired = std::move(kept);
-        }
 
-        if (freeable.empty()) {
-            return;
-        }
-
-        if (tracing) {
-            const auto freed =
-                freeable |
-                std::views::filter([](const detail::retired& item) -> bool { return !item.label.empty(); }) |
-                std::views::transform(&detail::retired::label) |
-                std::views::join_with(std::string_view{", "}) | std::ranges::to<std::string>();
-            if (!freed.empty()) {
-                trace("collect: freed {}", freed);
+            if (tracing) {
+                freed = freeable | std::views::filter([](const detail::retired& item) -> bool {
+                            return !item.label.empty();
+                        }) |
+                        std::views::transform(&detail::retired::label) |
+                        std::views::join_with(std::string_view{", "}) | std::ranges::to<std::string>();
             }
+            release(freeable);
         }
 
-        release(std::move(freeable));
+        if (!freed.empty()) {
+            trace("collect: freed {}", freed);
+        }
     }
 
-    auto device::state::release(std::vector<detail::retired> items) -> void {
+    auto device::state::release(std::span<const detail::retired> items) -> void {
         for (const auto& item : items) {
             if (item.view != VK_NULL_HANDLE) {
                 table.vkDestroyImageView(handle, item.view, nullptr);
@@ -319,8 +316,6 @@ namespace rei::gpu::vk {
 
             if (item.pool.pool != VK_NULL_HANDLE) {
                 table.vkResetCommandPool(handle, item.pool.pool, 0);
-
-                const auto lock = std::scoped_lock{mutex};
                 free_pools.push_back(item.pool);
             }
         }

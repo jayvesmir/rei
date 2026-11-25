@@ -82,6 +82,11 @@ namespace rei::gpu::vk {
             }
         }
 
+        if (recorded.compute) {
+            recorded.fail(vk::error_code::invalid_argument,
+                          std::format("submit of {}: {} is still open",
+                                      detail::label(recorded.name, "commands"), recorded.compute->label));
+        }
         if (!recorded.failure) {
             if (!recorded.pending.empty()) {
                 recorded.begin("end");

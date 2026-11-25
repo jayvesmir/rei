@@ -51,6 +51,7 @@ cc_library(
 
         "vk/buffer.cpp",
         "vk/commands.cpp",
+        "vk/compute_pass.cpp",
         "vk/descriptor.cpp",
         "vk/device.cpp",
         "vk/feature.cpp",

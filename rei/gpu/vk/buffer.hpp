@@ -25,6 +25,7 @@ namespace rei::gpu::vk {
     class buffer {
       private:
         friend class commands;
+        friend class compute_pass;
         friend class descriptor_set;
         friend class set_layout;
 
