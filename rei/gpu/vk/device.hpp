@@ -23,6 +23,7 @@ namespace volk {
 namespace rei::gpu::vk {
     class buffer;
     class commands;
+    class compute_pipeline;
     class descriptor_set;
     class image;
     class image_view;
@@ -47,6 +48,7 @@ namespace rei::gpu::vk {
       private:
         friend class buffer;
         friend class commands;
+        friend class compute_pipeline;
         friend class descriptor_set;
         friend class image;
         friend class image_view;

@@ -303,6 +303,12 @@ namespace rei::gpu::vk {
                 table.vkFreeMemory(handle, item.memory, nullptr);
             }
 
+            if (item.pipeline != VK_NULL_HANDLE) {
+                table.vkDestroyPipeline(handle, item.pipeline, nullptr);
+            }
+            if (item.pipeline_layout != VK_NULL_HANDLE) {
+                table.vkDestroyPipelineLayout(handle, item.pipeline_layout, nullptr);
+            }
             if (item.set_layout != VK_NULL_HANDLE) {
                 table.vkDestroyDescriptorSetLayout(handle, item.set_layout, nullptr);
             }

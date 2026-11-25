@@ -34,6 +34,7 @@
 #include "rei/gpu/vk/error_code.hpp"
 #include "rei/gpu/vk/image.hpp"
 #include "rei/gpu/vk/instance.hpp"
+#include "rei/gpu/vk/pipeline.hpp"
 #include "rei/gpu/vk/shader.hpp"
 
 namespace rei::gpu::vk {
@@ -176,6 +177,8 @@ namespace rei::gpu::vk {
             VkDescriptorSetLayout set_layout{};
             VkDescriptorPool descriptor_pool{};
             VkDescriptorSet descriptor_set{};
+            VkPipeline pipeline{};
+            VkPipelineLayout pipeline_layout{};
             detail::command_pool pool{};
             VmaAllocation allocation{};
             VkDeviceMemory memory{};
@@ -376,6 +379,20 @@ namespace rei::gpu::vk {
         VkDescriptorSet handle{};
         std::vector<detail::reference> references;
         std::map<std::pair<std::uint32_t, std::uint32_t>, vk::sampler> samplers;
+        std::string name;
+
+        ~state();
+    };
+
+    struct compute_pipeline::state {
+        std::shared_ptr<vk::device::state> device;
+        VkPipeline handle{};
+        VkPipelineLayout layout{};
+        std::vector<vk::set_layout> sets;
+        std::vector<std::vector<std::uint32_t>> reads;
+        std::uint32_t push_constant_size{};
+        bool writes{};
+        bool adopted{};
         std::string name;
 
         ~state();

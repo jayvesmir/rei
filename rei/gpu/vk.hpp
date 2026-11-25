@@ -7,5 +7,6 @@
 #include "rei/gpu/vk/error_code.hpp"
 #include "rei/gpu/vk/image.hpp"
 #include "rei/gpu/vk/instance.hpp"
+#include "rei/gpu/vk/pipeline.hpp"
 #include "rei/gpu/vk/shader.hpp"
 #include "rei/gpu/vk/vocabulary.hpp"
