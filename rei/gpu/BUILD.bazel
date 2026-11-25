@@ -42,6 +42,7 @@ cc_library(
     include_prefix = "gpu",
 
     srcs = [
+        "vk/detail/access.hpp",
         "vk/detail/features.hpp",
         "vk/detail/formats.hpp",
         "vk/detail/loader.cpp",
