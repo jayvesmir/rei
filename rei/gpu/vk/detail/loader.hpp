@@ -2,7 +2,7 @@
 
 #include <vulkan/vulkan_core.h>
 
-#include "volk.h"
+#include "volk/volk.h"
 
 namespace rei::gpu::vk::detail {
     [[nodiscard]] auto load_loader() -> bool;
