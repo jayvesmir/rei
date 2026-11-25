@@ -211,6 +211,9 @@ namespace rei::gpu::vk {
         auto copy(const vk::image& source, const vk::buffer& destination, const vk::image_region& region = {})
             -> void;
         auto copy(const vk::image& source, const vk::image& destination) -> void;
+        auto blit(const vk::image_view& source, const vk::image_view& destination,
+                  vk::filter filter = vk::filter::linear) -> void;
+        auto generate_mipmaps(const vk::image& image) -> void;
 
         auto barrier(std::initializer_list<vk::transition> transitions) -> void;
         auto barrier(std::span<const vk::transition> transitions) -> void;

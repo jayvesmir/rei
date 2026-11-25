@@ -49,6 +49,7 @@ cc_library(
         "vk/detail/loader.hpp",
         "vk/detail/state.hpp",
 
+        "vk/blit.cpp",
         "vk/buffer.cpp",
         "vk/commands.cpp",
         "vk/compute_pass.cpp",
