@@ -101,6 +101,7 @@ namespace rei::gpu::vk {
       private:
         friend class commands;
         friend class compute_pass;
+        friend class render_pass;
 
         struct state;
 

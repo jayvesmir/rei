@@ -60,6 +60,7 @@ cc_library(
         "vk/pass.cpp",
         "vk/pipeline.cpp",
         "vk/queue.cpp",
+        "vk/render_pass.cpp",
         "vk/shader.cpp",
 
         "@rei_vk_vocabulary//:feature_table.cpp",

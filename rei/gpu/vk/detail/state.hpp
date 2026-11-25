@@ -441,6 +441,23 @@ namespace rei::gpu::vk {
             bool last_wrote{};
         };
 
+        struct render_target {
+            std::shared_ptr<const vk::image::state> image;
+            VkImageSubresourceRange range{};
+            vk::access needed{};
+            bool overwritten{};
+            bool wrote{};
+        };
+
+        struct render_scope : state::scope {
+            std::vector<state::render_target> targets;
+            detail::target_formats formats;
+            std::uint32_t vertex_inputs{};
+            std::vector<bool> vertex_buffers;
+            bool index_buffer{};
+            bool waited{};
+        };
+
         std::shared_ptr<vk::device::state> device;
         std::uint64_t serial{};
         std::string name;
@@ -448,6 +465,7 @@ namespace rei::gpu::vk {
         std::vector<detail::retired> staging;
         std::vector<detail::barrier> pending;
         std::optional<state::compute_scope> compute;
+        std::optional<state::render_scope> render;
         std::optional<rei::error> failure;
         bool settled{};
 

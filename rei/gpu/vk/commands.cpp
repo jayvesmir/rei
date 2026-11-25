@@ -77,6 +77,8 @@ namespace rei::gpu::vk {
     auto commands::state::outside(std::string_view call) -> bool {
         if (compute) {
             fail(vk::error_code::invalid_argument, std::format("{}: {} is still open", call, compute->label));
+        } else if (render) {
+            fail(vk::error_code::invalid_argument, std::format("{}: {} is still open", call, render->label));
         }
 
         return !failure;

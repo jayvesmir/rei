@@ -27,6 +27,7 @@ namespace rei::gpu::vk {
         friend class commands;
         friend class compute_pass;
         friend class descriptor_set;
+        friend class render_pass;
         friend class set_layout;
 
         struct state;

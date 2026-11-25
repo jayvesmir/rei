@@ -47,6 +47,18 @@ namespace rei::gpu::vk::detail {
         .access = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
     };
 
+    inline constexpr detail::use render_writes{
+        .name = "render writes",
+        .stages = VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        .access = VK_ACCESS_2_SHADER_WRITE_BIT,
+    };
+
+    inline constexpr detail::use render_work{
+        .name = "render",
+        .stages = VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        .access = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+    };
+
     [[nodiscard]] constexpr auto use_of(vk::access access) noexcept -> detail::use {
         switch (access) {
         case vk::access::undefined:
