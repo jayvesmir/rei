@@ -2,11 +2,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <format>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <source_location>
@@ -24,6 +26,7 @@
 #include <vk_mem_alloc.h>
 
 #include "rei/core/error.hpp"
+#include "rei/gpu/vk/buffer.hpp"
 #include "rei/gpu/vk/device.hpp"
 #include "rei/gpu/vk/error_code.hpp"
 #include "rei/gpu/vk/instance.hpp"
@@ -116,6 +119,14 @@ namespace rei::gpu::vk {
                                          });
         }
 
+        inline auto label(std::string_view name, std::string_view kind) -> std::string {
+            return name.empty() ? std::format("unnamed {}", kind) : std::string{name};
+        }
+
+        inline auto quoted(std::string_view name, std::string_view kind) -> std::string {
+            return name.empty() ? std::format("an unnamed {}", kind) : std::format("{} '{}'", kind, name);
+        }
+
         struct command_pool {
             VkCommandPool pool{};
             VkCommandBuffer buffer{};
@@ -198,5 +209,20 @@ namespace rei::gpu::vk {
                 emit(std::format(format, std::forward<Args>(args)...));
             }
         }
+    };
+
+    struct buffer::state {
+        std::shared_ptr<vk::device::state> device;
+        VkBuffer handle{};
+        VmaAllocation allocation{};
+        VkDeviceMemory memory{};
+        std::uint64_t size{};
+        vk::buffer_usage usage{};
+        vk::host_access host{vk::host_access::none};
+        std::span<std::byte> mapped;
+        std::optional<std::uint64_t> address;
+        std::string name;
+
+        ~state();
     };
 } // namespace rei::gpu::vk

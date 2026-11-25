@@ -49,6 +49,7 @@ cc_library(
         "vk/detail/loader.hpp",
         "vk/detail/state.hpp",
 
+        "vk/buffer.cpp",
         "vk/device.cpp",
         "vk/feature.cpp",
         "vk/instance.cpp",
@@ -59,6 +60,7 @@ cc_library(
 
     hdrs = [
         "vk.hpp",
+        "vk/buffer.hpp",
         "vk/device.hpp",
         "vk/instance.hpp",
         "vk/raw.hpp",

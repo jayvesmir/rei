@@ -19,6 +19,7 @@ namespace volk {
 } // namespace volk
 
 namespace rei::gpu::vk {
+    class buffer;
     class queue;
 
     struct ticket {
@@ -36,6 +37,8 @@ namespace rei::gpu::vk {
 
     class device {
       private:
+        friend class buffer;
+
         struct state;
 
         std::shared_ptr<device::state> m_state;

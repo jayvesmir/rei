@@ -440,6 +440,9 @@ namespace rei::gpu::vk {
             .vkGetDeviceProcAddr = context.table.vkGetDeviceProcAddr,
         };
         const auto allocator = VmaAllocatorCreateInfo{
+            .flags = state->features[std::to_underlying(vk::feature::buffer_device_address)]
+                         ? VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT
+                         : VmaAllocatorCreateFlags{},
             .physicalDevice = chosen->physical.handle,
             .device = state->handle,
             .pVulkanFunctions = &functions,
