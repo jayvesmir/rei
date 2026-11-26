@@ -40,6 +40,7 @@ namespace rei::gpu::vk {
     class instance {
       private:
         friend class device;
+        friend class surface;
 
         struct state;
 
@@ -53,5 +54,23 @@ namespace rei::gpu::vk {
         [[nodiscard]] auto physical_devices() const -> std::vector<vk::physical_device>;
         [[nodiscard]] auto handle() const noexcept -> VkInstance;
         [[nodiscard]] auto raw() const noexcept -> const volk::VolkInstanceTable&;
+    };
+
+    class surface {
+      private:
+        friend class device;
+        friend class swapchain;
+
+        struct state;
+
+        std::shared_ptr<surface::state> m_state;
+
+        explicit surface(std::shared_ptr<surface::state> state) noexcept;
+
+      public:
+        static auto adopt(const vk::instance& instance, VkSurfaceKHR handle) -> vk::surface;
+        static auto headless(const vk::instance& instance) -> std::expected<vk::surface, rei::error>;
+
+        [[nodiscard]] auto handle() const noexcept -> VkSurfaceKHR;
     };
 } // namespace rei::gpu::vk

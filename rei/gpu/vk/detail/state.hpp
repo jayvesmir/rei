@@ -57,6 +57,9 @@ namespace rei::gpu::vk {
                 {VK_ERROR_FORMAT_NOT_SUPPORTED, "VK_ERROR_FORMAT_NOT_SUPPORTED"},
                 {VK_ERROR_FRAGMENTED_POOL, "VK_ERROR_FRAGMENTED_POOL"},
                 {VK_ERROR_UNKNOWN, "VK_ERROR_UNKNOWN"},
+                {VK_ERROR_SURFACE_LOST_KHR, "VK_ERROR_SURFACE_LOST_KHR"},
+                {VK_ERROR_NATIVE_WINDOW_IN_USE_KHR, "VK_ERROR_NATIVE_WINDOW_IN_USE_KHR"},
+                {VK_ERROR_OUT_OF_DATE_KHR, "VK_ERROR_OUT_OF_DATE_KHR"},
             });
 
             auto code = vk::error_code::driver_error;
@@ -64,6 +67,8 @@ namespace rei::gpu::vk {
                 code = vk::error_code::out_of_memory;
             } else if (result == VK_ERROR_DEVICE_LOST) {
                 code = vk::error_code::device_lost;
+            } else if (result == VK_ERROR_SURFACE_LOST_KHR) {
+                code = vk::error_code::surface_lost;
             }
 
             auto name = std::string_view{};
@@ -242,6 +247,16 @@ namespace rei::gpu::vk {
         bool trace{};
 
         state() = default;
+        state(const state& other) = delete;
+        auto operator=(const state& other) -> state& = delete;
+        ~state();
+    };
+
+    struct surface::state {
+        vk::instance instance;
+        VkSurfaceKHR handle{};
+
+        state(vk::instance instance, VkSurfaceKHR handle) noexcept;
         state(const state& other) = delete;
         auto operator=(const state& other) -> state& = delete;
         ~state();

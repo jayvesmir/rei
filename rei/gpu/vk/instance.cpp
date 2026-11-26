@@ -27,6 +27,8 @@ namespace rei::gpu::vk {
         constexpr std::string_view validation_layer{"VK_LAYER_KHRONOS_validation"};
         constexpr std::string_view debug_utils{VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
         constexpr std::string_view layer_settings{VK_EXT_LAYER_SETTINGS_EXTENSION_NAME};
+        constexpr std::string_view surfaces{VK_KHR_SURFACE_EXTENSION_NAME};
+        constexpr std::string_view headless_surfaces{VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME};
 
         constexpr auto synchronization_settings = std::to_array<std::string_view>({
             "validate_sync",
@@ -178,8 +180,10 @@ namespace rei::gpu::vk {
 
         const auto debugging = detail::has_extension(*available, debug_utils);
         const auto reporting = debugging && (validating || options.on_message);
-        if (debugging && !std::ranges::contains(state->extensions, debug_utils)) {
-            state->extensions.emplace_back(debug_utils);
+        for (const auto name : {debug_utils, surfaces, headless_surfaces}) {
+            if (detail::has_extension(*available, name) && !std::ranges::contains(state->extensions, name)) {
+                state->extensions.emplace_back(name);
+            }
         }
         if (synchronizing && !std::ranges::contains(state->extensions, layer_settings)) {
             state->extensions.emplace_back(layer_settings);
@@ -296,5 +300,44 @@ namespace rei::gpu::vk {
 
     auto instance::raw() const noexcept -> const volk::VolkInstanceTable& {
         return m_state->table;
+    }
+
+    surface::state::state(vk::instance instance, VkSurfaceKHR handle) noexcept
+        : instance(std::move(instance)), handle(handle) {}
+
+    surface::state::~state() {
+        instance.raw().vkDestroySurfaceKHR(instance.handle(), handle, nullptr);
+    }
+
+    surface::surface(std::shared_ptr<surface::state> state) noexcept : m_state(std::move(state)) {}
+
+    auto surface::adopt(const vk::instance& instance, VkSurfaceKHR handle) -> vk::surface {
+        return vk::surface{std::make_shared<surface::state>(instance, handle)};
+    }
+
+    auto surface::headless(const vk::instance& instance) -> std::expected<vk::surface, rei::error> {
+        if (!std::ranges::contains(instance.m_state->extensions, headless_surfaces)) {
+            return std::unexpected(rei::error{
+                vk::error_code::missing_extension,
+                std::format("a headless surface needs the instance extension {}, and no driver here has it",
+                            headless_surfaces),
+            });
+        }
+
+        const auto info = VkHeadlessSurfaceCreateInfoEXT{
+            .sType = VK_STRUCTURE_TYPE_HEADLESS_SURFACE_CREATE_INFO_EXT,
+        };
+        VkSurfaceKHR handle{};
+        if (const auto result =
+                instance.raw().vkCreateHeadlessSurfaceEXT(instance.handle(), &info, nullptr, &handle);
+            result != VK_SUCCESS) {
+            return std::unexpected(detail::vulkan_error(result, "vkCreateHeadlessSurfaceEXT"));
+        }
+
+        return surface::adopt(instance, handle);
+    }
+
+    auto surface::handle() const noexcept -> VkSurfaceKHR {
+        return m_state->handle;
     }
 } // namespace rei::gpu::vk
