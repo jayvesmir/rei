@@ -66,6 +66,7 @@ namespace rei::gpu::vk {
 
             auto flag = VkBool32{};
             std::memcpy(&flag, m_structs[*found].data() + info.offset, sizeof(flag));
+
             return flag == VK_TRUE;
         }
 

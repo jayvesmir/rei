@@ -428,7 +428,7 @@ namespace rei::gpu::vk {
 
         auto& scope = *self.render;
         const auto& bound = *buffer.m_state;
-        const auto size = type == vk::index_type::uint16 ? 2U : 4U;
+        const auto size = type == vk::index_type::uint16 ? std::uint32_t{2} : std::uint32_t{4};
 
         if (!vk::has(bound.usage, vk::buffer_usage::index_buffer) || offset % size != 0 ||
             offset >= bound.size) {

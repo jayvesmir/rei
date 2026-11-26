@@ -126,6 +126,7 @@ namespace rei::gpu::vk {
                 const auto device_lock = std::scoped_lock{device.mutex};
                 device.new_images.append_range(taken);
             }
+
             return std::unexpected(std::move(error));
         };
 
