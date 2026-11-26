@@ -249,11 +249,12 @@ namespace rei::gpu::vk {
         retired.push_back(std::move(item));
     }
 
-    auto device::state::collect() -> void {
+    auto device::state::collect(std::uint64_t idle_through) -> void {
         auto completed = std::uint64_t{};
         if (table.vkGetSemaphoreCounterValue(handle, queue.timeline, &completed) != VK_SUCCESS) {
             return;
         }
+        completed = std::max(completed, idle_through);
 
         auto freed = std::string{};
         {
@@ -266,7 +267,8 @@ namespace rei::gpu::vk {
             auto freeable = std::vector<detail::retired>{};
             auto kept = std::vector<detail::retired>{};
             for (auto& item : retired) {
-                (item.serial < oldest ? freeable : kept).push_back(std::move(item));
+                (item.serial < oldest && item.ticket <= completed ? freeable : kept)
+                    .push_back(std::move(item));
             }
             retired = std::move(kept);
 
@@ -327,6 +329,19 @@ namespace rei::gpu::vk {
             if (item.pool.pool != VK_NULL_HANDLE) {
                 table.vkResetCommandPool(handle, item.pool.pool, 0);
                 free_pools.push_back(item.pool);
+            }
+
+            if (item.swapchain != VK_NULL_HANDLE) {
+                auto& surface = *item.surface->m_state;
+                const auto lock = std::scoped_lock{surface.mutex};
+
+                if (surface.live == item.swapchain) {
+                    surface.live = VK_NULL_HANDLE;
+                }
+                table.vkDestroySwapchainKHR(handle, item.swapchain, nullptr);
+            }
+            for (const VkSemaphore semaphore : item.semaphores) {
+                table.vkDestroySemaphore(handle, semaphore, nullptr);
             }
         }
     }
@@ -532,15 +547,12 @@ namespace rei::gpu::vk {
     auto device::wait_idle() const -> std::expected<void, rei::error> {
         auto& state = *m_state;
 
-        auto lock = std::unique_lock{state.queue.mutex};
-        const auto result = state.table.vkDeviceWaitIdle(state.handle);
-        lock.unlock();
-
-        if (result != VK_SUCCESS) {
+        const auto lock = std::scoped_lock{state.queue.mutex};
+        if (const auto result = state.table.vkDeviceWaitIdle(state.handle); result != VK_SUCCESS) {
             return std::unexpected(detail::vulkan_error(result, "vkDeviceWaitIdle"));
         }
 
-        state.collect();
+        state.collect(state.queue.submitted + 1);
 
         return {};
     }

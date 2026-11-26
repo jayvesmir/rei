@@ -175,6 +175,10 @@ namespace rei::gpu::vk {
             detail::command_pool pool{};
             VmaAllocation allocation{};
             VkDeviceMemory memory{};
+            VkSwapchainKHR swapchain{};
+            std::vector<VkSemaphore> semaphores;
+            std::optional<vk::surface> surface;
+            std::uint64_t ticket{};
         };
 
         struct barrier {
@@ -255,6 +259,9 @@ namespace rei::gpu::vk {
     struct surface::state {
         vk::instance instance;
         VkSurfaceKHR handle{};
+        std::mutex mutex;
+        VkDevice presenter{};
+        VkSwapchainKHR live{};
 
         state(vk::instance instance, VkSurfaceKHR handle) noexcept;
         state(const state& other) = delete;
@@ -306,7 +313,7 @@ namespace rei::gpu::vk {
         auto take_pool() -> std::expected<detail::command_pool, rei::error>;
 
         auto retire(detail::retired item) -> void;
-        auto collect() -> void;
+        auto collect(std::uint64_t idle_through = 0) -> void;
         auto release(std::span<const detail::retired> items) -> void;
 
         auto name(VkObjectType type, std::uint64_t object, std::string_view name) const -> void;
