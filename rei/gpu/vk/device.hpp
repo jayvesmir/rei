@@ -31,6 +31,7 @@ namespace rei::gpu::vk {
     class queue;
     class sampler;
     class set_layout;
+    class swapchain;
 
     struct ticket {
         std::uint32_t queue{};
@@ -58,6 +59,7 @@ namespace rei::gpu::vk {
         friend class queue;
         friend class sampler;
         friend class set_layout;
+        friend class swapchain;
 
         struct state;
 

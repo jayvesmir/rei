@@ -9,4 +9,5 @@
 #include "rei/gpu/vk/instance.hpp"
 #include "rei/gpu/vk/pipeline.hpp"
 #include "rei/gpu/vk/shader.hpp"
+#include "rei/gpu/vk/swapchain.hpp"
 #include "rei/gpu/vk/vocabulary.hpp"

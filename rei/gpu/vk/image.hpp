@@ -64,6 +64,7 @@ namespace rei::gpu::vk {
         friend class device;
         friend class image_view;
         friend class queue;
+        friend class swapchain;
 
         struct state;
 

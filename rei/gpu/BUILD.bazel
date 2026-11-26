@@ -63,6 +63,7 @@ cc_library(
         "vk/queue.cpp",
         "vk/render_pass.cpp",
         "vk/shader.cpp",
+        "vk/swapchain.cpp",
 
         "@rei_vk_vocabulary//:feature_table.cpp",
         "@rei_vk_vocabulary//:format_table.cpp",
@@ -79,6 +80,7 @@ cc_library(
         "vk/pipeline.hpp",
         "vk/raw.hpp",
         "vk/shader.hpp",
+        "vk/swapchain.hpp",
         "vk/vocabulary.hpp",
 
         ":vk_vocabulary",

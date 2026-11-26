@@ -192,7 +192,7 @@ namespace rei::gpu::vk {
     }
 
     image::state::~state() {
-        if (handle == VK_NULL_HANDLE) {
+        if (handle == VK_NULL_HANDLE || home == vk::access::present) {
             return;
         }
 

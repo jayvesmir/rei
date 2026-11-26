@@ -37,6 +37,7 @@
 #include "rei/gpu/vk/instance.hpp"
 #include "rei/gpu/vk/pipeline.hpp"
 #include "rei/gpu/vk/shader.hpp"
+#include "rei/gpu/vk/swapchain.hpp"
 
 namespace rei::gpu::vk {
     namespace detail {
@@ -358,6 +359,8 @@ namespace rei::gpu::vk {
         bool cube{};
         vk::access home{vk::access::manual};
         std::string name;
+        std::weak_ptr<vk::swapchain::generation> swapchain;
+        std::uint32_t swapchain_index{};
 
         ~state();
 
@@ -440,6 +443,61 @@ namespace rei::gpu::vk {
         std::shared_ptr<vk::device::state> device;
         detail::target_formats targets;
         std::uint32_t vertex_inputs{};
+
+        ~state();
+    };
+
+    struct swapchain::generation {
+        struct slot {
+            vk::image image;
+            VkSemaphore acquired{};
+            std::vector<VkSemaphore> rendered;
+            std::uint32_t signaled{};
+            std::uint64_t acquisitions{};
+            bool awaited{};
+            bool fresh{true};
+            bool held{};
+        };
+
+        std::shared_ptr<vk::device::state> device;
+        vk::surface surface;
+        VkSwapchainKHR handle{};
+        vk::extent extent{};
+        vk::present_mode mode{};
+        std::uint32_t min_images{};
+        std::string name;
+
+        std::mutex mutex;
+        std::vector<generation::slot> slots;
+        std::vector<VkSemaphore> spare;
+        std::uint32_t held{};
+        std::uint64_t presented{};
+        std::atomic<bool> stale{};
+
+        generation(std::shared_ptr<vk::device::state> device, vk::surface surface) noexcept;
+        generation(const generation& other) = delete;
+        auto operator=(const generation& other) -> generation& = delete;
+        ~generation();
+    };
+
+    struct swapchain::state {
+        std::shared_ptr<vk::device::state> device;
+        vk::surface surface;
+        VkSurfaceFormatKHR format{};
+        vk::image_usage usage{};
+        vk::present_mode mode{};
+        vk::extent requested{};
+        vk::extent extent{};
+        std::string name;
+        std::shared_ptr<swapchain::generation> current;
+
+        auto build(vk::extent wanted) -> std::expected<void, rei::error>;
+    };
+
+    struct frame::state {
+        std::shared_ptr<vk::swapchain::generation> generation;
+        std::uint32_t index{};
+        bool presented{};
 
         ~state();
     };
