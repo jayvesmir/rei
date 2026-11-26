@@ -41,6 +41,7 @@ namespace rei::gpu::vk {
         std::vector<vk::feature> require{};
         std::vector<vk::feature> prefer{};
         std::vector<std::string> extensions{};
+        std::optional<vk::surface> surface{};
         std::optional<vk::physical_device> physical{};
         std::string name{};
     };

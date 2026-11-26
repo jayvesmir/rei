@@ -64,15 +64,24 @@ namespace rei::gpu::vk {
             auto families = std::vector<VkQueueFamilyProperties>(family_count);
             table.vkGetPhysicalDeviceQueueFamilyProperties(physical.handle, &family_count, families.data());
 
-            const auto family =
-                std::ranges::find_if(families, [](const VkQueueFamilyProperties& properties) -> bool {
-                    constexpr auto needed = VkQueueFlags{VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT};
-                    return (properties.queueFlags & needed) == needed;
-                });
-            if (family == families.end()) {
+            const auto indices = std::views::iota(0U, family_count);
+            const auto family = std::ranges::find_if(indices, [&](std::uint32_t index) -> bool {
+                constexpr auto needed = VkQueueFlags{VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT};
+
+                auto presentable = VkBool32{options.surface ? VK_FALSE : VK_TRUE};
+                if (options.surface &&
+                    table.vkGetPhysicalDeviceSurfaceSupportKHR(
+                        physical.handle, index, options.surface->handle(), &presentable) != VK_SUCCESS) {
+                    return false;
+                }
+
+                return (families[index].queueFlags & needed) == needed && presentable == VK_TRUE;
+            });
+            if (family == indices.end()) {
                 return std::unexpected(rei::error{
                     vk::error_code::no_suitable_device,
-                    std::format("'{}' has no queue for graphics and compute", physical.name),
+                    std::format("'{}' has no queue for graphics and compute{}", physical.name,
+                                options.surface ? " that can present to the surface" : ""),
                 });
             }
 
@@ -107,7 +116,7 @@ namespace rei::gpu::vk {
             auto chosen = candidate{
                 .physical = physical,
                 .limits = properties.limits,
-                .queue_family = static_cast<std::uint32_t>(std::distance(families.begin(), family)),
+                .queue_family = *family,
                 .features = std::vector<bool>(detail::feature_table.size()),
                 .extensions = {},
             };
@@ -138,7 +147,12 @@ namespace rei::gpu::vk {
                 }
             }
 
-            for (const auto& name : options.extensions) {
+            auto extensions = options.extensions;
+            if (options.surface) {
+                extensions.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+            }
+
+            for (const auto& name : extensions) {
                 if (!detail::has_extension(*supported, name)) {
                     return std::unexpected(rei::error{
                         vk::error_code::missing_extension,
@@ -339,6 +353,14 @@ namespace rei::gpu::vk {
         -> std::expected<vk::device, rei::error> {
         const auto& context = *instance.m_state;
 
+        if (options.surface && options.surface->m_state->instance.handle() != context.handle) {
+            return std::unexpected(rei::error{
+                vk::error_code::invalid_argument,
+                std::format("{}: the surface belongs to another instance",
+                            detail::quoted(options.name, "device")),
+            });
+        }
+
         auto chosen = std::optional<candidate>{};
         if (options.physical) {
             auto assessed = assess(context.table, context.extensions, *options.physical, options);
@@ -409,6 +431,7 @@ namespace rei::gpu::vk {
         state->queue.family = chosen->queue_family;
         state->limits = chosen->limits;
         state->features = std::move(chosen->features);
+        state->presenting = options.surface.has_value();
         state->tracing = context.trace;
         state->labeling = (context.trace || context.validation != vk::validation::none) &&
                           context.table.vkCmdBeginDebugUtilsLabelEXT != nullptr;

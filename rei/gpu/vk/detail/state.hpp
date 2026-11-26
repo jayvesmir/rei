@@ -281,6 +281,7 @@ namespace rei::gpu::vk {
         std::vector<bool> features;
         bool tracing{};
         bool labeling{};
+        bool presenting{};
         vk::queue::state queue;
 
         std::mutex mutex;
