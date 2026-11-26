@@ -109,6 +109,76 @@ namespace rei::gpu::vk {
 
         auto lock = std::unique_lock{queue.mutex};
 
+        auto fresh = std::vector<std::shared_ptr<image::state>>{};
+        auto awaited = std::vector<std::string>{};
+        auto waits = after | std::views::transform([&](const vk::ticket& ticket) -> VkSemaphoreSubmitInfo {
+                         return {
+                             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+                             .semaphore = queue.timeline,
+                             .value = ticket.value,
+                             .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                         };
+                     }) |
+                     std::ranges::to<std::vector>();
+
+        const auto value = queue.submitted + 1;
+        auto signals = std::vector<VkSemaphoreSubmitInfo>{
+            {
+                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+                .semaphore = queue.timeline,
+                .value = value,
+                .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            },
+        };
+
+        for (const auto& use : recorded.frames) {
+            const auto frame_lock = std::scoped_lock{use.generation->mutex};
+            auto& slot = use.generation->slots[use.index];
+            const auto& image = slot.image.m_state;
+
+            if (!slot.held || slot.acquisitions != use.acquisition) {
+                return std::unexpected(rei::error{
+                    vk::error_code::invalid_argument,
+                    std::format("submit of {}: it uses {}, whose frame was presented or dropped",
+                                detail::label(recorded.name, "commands"),
+                                detail::quoted(image->name, "image")),
+                });
+            }
+
+            if (slot.fresh) {
+                fresh.push_back(image);
+            }
+            if (!slot.awaited) {
+                waits.push_back({
+                    .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+                    .semaphore = slot.acquired,
+                    .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                });
+                if (device.tracing) {
+                    awaited.push_back(image->name);
+                }
+            }
+
+            if (slot.signaled == slot.rendered.size()) {
+                const auto info = VkSemaphoreCreateInfo{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+                VkSemaphore semaphore{};
+                if (const auto result =
+                        device.table.vkCreateSemaphore(device.handle, &info, nullptr, &semaphore);
+                    result != VK_SUCCESS) {
+                    return std::unexpected(detail::vulkan_error(
+                        result, "vkCreateSemaphore",
+                        std::format("submit of {}", detail::label(recorded.name, "commands"))));
+                }
+
+                slot.rendered.push_back(semaphore);
+            }
+            signals.push_back({
+                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+                .semaphore = slot.rendered[slot.signaled],
+                .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+            });
+        }
+
         auto taken = std::vector<std::weak_ptr<image::state>>{};
         {
             const auto device_lock = std::scoped_lock{device.mutex};
@@ -130,7 +200,6 @@ namespace rei::gpu::vk {
             return std::unexpected(std::move(error));
         };
 
-        auto fresh = std::vector<std::shared_ptr<image::state>>{};
         for (const auto& weak : taken) {
             if (auto image = weak.lock()) {
                 fresh.push_back(std::move(image));
@@ -188,37 +257,28 @@ namespace rei::gpu::vk {
         buffers.push_back(
             {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, .commandBuffer = main.buffer});
 
-        const auto waits = after |
-                           std::views::transform([&](const vk::ticket& ticket) -> VkSemaphoreSubmitInfo {
-                               return {
-                                   .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-                                   .semaphore = queue.timeline,
-                                   .value = ticket.value,
-                                   .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                               };
-                           }) |
-                           std::ranges::to<std::vector>();
-
-        const auto value = queue.submitted + 1;
-        const auto signal = VkSemaphoreSubmitInfo{
-            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-            .semaphore = queue.timeline,
-            .value = value,
-            .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        };
         const auto submit = VkSubmitInfo2{
             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
             .waitSemaphoreInfoCount = static_cast<std::uint32_t>(waits.size()),
             .pWaitSemaphoreInfos = waits.data(),
             .commandBufferInfoCount = static_cast<std::uint32_t>(buffers.size()),
             .pCommandBufferInfos = buffers.data(),
-            .signalSemaphoreInfoCount = 1,
-            .pSignalSemaphoreInfos = &signal,
+            .signalSemaphoreInfoCount = static_cast<std::uint32_t>(signals.size()),
+            .pSignalSemaphoreInfos = signals.data(),
         };
 
         if (const auto result = device.table.vkQueueSubmit2(queue.handle, 1, &submit, VK_NULL_HANDLE);
             result != VK_SUCCESS) {
             return abandon(detail::vulkan_error(result, "vkQueueSubmit2"));
+        }
+
+        for (const auto& use : recorded.frames) {
+            const auto frame_lock = std::scoped_lock{use.generation->mutex};
+            auto& slot = use.generation->slots[use.index];
+
+            slot.awaited = true;
+            slot.fresh = false;
+            slot.signaled++;
         }
 
         queue.submitted = value;
@@ -233,8 +293,12 @@ namespace rei::gpu::vk {
                 }) |
                 std::views::join_with(std::string_view{", "}) | std::ranges::to<std::string>();
 
-            device.trace("submit {}: {}ticket {}", detail::label(recorded.name, "commands"),
-                         first_uses.empty() ? "" : std::format("first use: {}; ", first_uses), value);
+            const auto acquired =
+                awaited | std::views::join_with(std::string_view{", "}) | std::ranges::to<std::string>();
+
+            device.trace("submit {}: {}{}ticket {}", detail::label(recorded.name, "commands"),
+                         first_uses.empty() ? "" : std::format("first use: {}; ", first_uses),
+                         acquired.empty() ? "" : std::format("waits for {}; ", acquired), value);
         }
 
         fresh.clear();

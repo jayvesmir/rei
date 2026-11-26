@@ -185,6 +185,7 @@ namespace rei::gpu::vk {
         friend class compute_pass;
         friend class queue;
         friend class render_pass;
+        friend class swapchain;
 
         struct state;
 

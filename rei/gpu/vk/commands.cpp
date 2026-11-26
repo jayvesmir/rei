@@ -5,6 +5,7 @@
 #include <format>
 #include <initializer_list>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -221,9 +222,30 @@ namespace rei::gpu::vk {
         pending.clear();
     }
 
+    auto commands::state::touch(const image::state& image) -> void {
+        const auto generation = image.swapchain.lock();
+        if (!generation) {
+            return;
+        }
+
+        const auto lock = std::scoped_lock{generation->mutex};
+        const auto known = std::ranges::any_of(frames, [&](const state::frame_use& use) -> bool {
+            return use.generation == generation && use.index == image.swapchain_index;
+        });
+        if (!known) {
+            frames.push_back({
+                .generation = generation,
+                .index = image.swapchain_index,
+                .acquisition = generation->slots[image.swapchain_index].acquisitions,
+            });
+        }
+    }
+
     auto commands::state::enter(std::string_view workflow, const image::state& image,
                                 const VkImageSubresourceRange& range, vk::access needed, bool discard)
         -> void {
+        touch(image);
+
         if (image.home == vk::access::manual || image.home == needed) {
             return;
         }
@@ -825,6 +847,7 @@ namespace rei::gpu::vk {
                 return;
             }
 
+            self.touch(*image);
             self.add("barrier", {
                                     .target = image->label(view.range),
                                     .image = image->handle,

@@ -434,6 +434,20 @@ namespace rei::gpu::vk {
 
         auto& slot = generation.slots[frame.m_state->index];
 
+        auto lock = std::unique_lock{generation.mutex};
+        const auto drawn = slot.signaled != 0;
+        lock.unlock();
+
+        if (!drawn) {
+            const auto queue = vk::device{self.device}.queue();
+            auto commands = queue.record(std::format("present {}", detail::label(self.name, "swapchain")));
+            commands.m_state->touch(*slot.image.m_state);
+
+            if (const auto submitted = queue.submit(std::move(commands)); !submitted) {
+                return std::unexpected(submitted.error());
+            }
+        }
+
         const auto locks = std::scoped_lock{context.queue.mutex, generation.mutex};
         const auto info = VkPresentInfoKHR{
             .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,

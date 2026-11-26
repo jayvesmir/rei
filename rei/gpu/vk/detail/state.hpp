@@ -503,6 +503,12 @@ namespace rei::gpu::vk {
     };
 
     struct commands::state {
+        struct frame_use {
+            std::shared_ptr<vk::swapchain::generation> generation;
+            std::uint32_t index{};
+            std::uint64_t acquisition{};
+        };
+
         struct bound_set {
             bool pushed{};
             std::shared_ptr<const vk::descriptor_set::state> allocated;
@@ -545,6 +551,7 @@ namespace rei::gpu::vk {
         detail::command_pool pool{};
         std::vector<detail::retired> staging;
         std::vector<detail::barrier> pending;
+        std::vector<state::frame_use> frames;
         std::optional<state::compute_scope> compute;
         std::optional<state::render_scope> render;
         std::optional<rei::error> failure;
@@ -587,6 +594,7 @@ namespace rei::gpu::vk {
 
         auto add(std::string_view workflow, detail::barrier barrier) -> void;
         auto flush(std::string_view workflow) -> void;
+        auto touch(const image::state& image) -> void;
 
         auto enter(std::string_view workflow, const image::state& image, const VkImageSubresourceRange& range,
                    vk::access needed, bool discard) -> void;
