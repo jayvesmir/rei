@@ -306,6 +306,10 @@ namespace rei::gpu::vk {
                         std::ranges::to<std::string>()),
             });
         }
+        if (chosen == formats->end()) {
+            chosen = std::ranges::find(*formats, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+                                       &VkSurfaceFormatKHR::colorSpace);
+        }
 
         auto state = std::make_unique<swapchain::state>(swapchain::state{
             .device = device.m_state,
