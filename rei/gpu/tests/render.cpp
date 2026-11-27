@@ -799,7 +799,7 @@ namespace rei::gpu::tests {
                       vk::error_code::layout_mismatch,
                       "graphics pipeline 'typed': location 1 ('color') is a r32g32b32_sfloat in the vertex "
                       "shader and a r32_uint in vertex_input"));
-        EXPECT_TRUE(has_error(vk::graphics_pipeline::make(device(), {.vertex = *fragment_shader}),
+        EXPECT_TRUE(has_error(vk::graphics_pipeline::make(device(), {.vertex = *post_fragment}),
                               vk::error_code::invalid_argument,
                               "an unnamed graphics pipeline: the entry point 'main' isn't a vertex shader"));
         EXPECT_TRUE(has_error(vk::graphics_pipeline::make(device(),

@@ -19,15 +19,8 @@ SHADER_COMPILER = select({
 })
 
 GLSL = {
-    "double.comp": "compute",
-    "fill.comp": "compute",
-    "increment.comp": "compute",
-    "mark.frag": "fragment",
     "post.frag": "fragment",
     "post.vert": "vertex",
-    "scene.vert": "vertex",
-    "triangle.frag": "fragment",
-    "triangle.vert": "vertex",
 }
 
 REFLECTOR_REGRESSIONS = [
@@ -36,27 +29,33 @@ REFLECTOR_REGRESSIONS = [
 ]
 
 SLANG = [
+    "doubling",
+    "fill",
     "gather",
+    "increment",
     "kernels",
     "lanes",
+    "mark",
     "numbered",
+    "scene",
     "surface",
+    "triangle",
 ]
 
 PIPELINES = {
-    "doubling": [":double.comp.spv"],
-    "fill": [":fill.comp.spv"],
+    "doubling": [":doubling.spv"],
+    "fill": [":fill.spv"],
     "gather": [":gather.spv"],
-    "increment": [":increment.comp.spv"],
+    "increment": [":increment.spv"],
     "lanes": [":lanes.spv"],
-    "mark": [":post.vert.spv", ":mark.frag.spv"],
+    "mark": [":mark.spv"],
     "numbered": [":numbered.spv"],
     "post": [":post.vert.spv", ":post.frag.spv"],
     "scale": [":kernels.spv"],
-    "scene": [":scene.vert.spv", ":triangle.frag.spv"],
+    "scene": [":scene.spv"],
     "shift": [":kernels.spv"],
     "surface": [":surface.spv"],
-    "triangle": [":triangle.vert.spv", ":triangle.frag.spv"],
+    "triangle": [":triangle.spv"],
 }
 
 KERNELS = [
