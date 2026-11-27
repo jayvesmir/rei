@@ -94,6 +94,7 @@ cc_test(
     size = "small",
 
     srcs = [
+        "canary.cpp",
         "compute.cpp",
         "device.cpp",
         "support.hpp",
