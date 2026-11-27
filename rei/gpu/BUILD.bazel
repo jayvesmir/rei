@@ -66,6 +66,7 @@ cc_library(
         "vk/shader.cpp",
         "vk/swapchain.cpp",
 
+        "@rei_vk_vocabulary//:capability_table.cpp",
         "@rei_vk_vocabulary//:feature_table.cpp",
         "@rei_vk_vocabulary//:format_table.cpp",
     ],

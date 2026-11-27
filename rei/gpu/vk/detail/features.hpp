@@ -1,9 +1,11 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 #include <vulkan/vulkan_core.h>
@@ -29,8 +31,34 @@ namespace rei::gpu::vk::detail {
         vk::feature feature;
     };
 
+    struct device_properties {
+        VkPhysicalDeviceVulkan11Properties vulkan_11{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES};
+        VkPhysicalDeviceVulkan12Properties vulkan_12{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
+    };
+
+    struct extension_enable {
+        std::string_view name;
+    };
+
+    struct property_enable {
+        std::string_view name;
+        std::size_t offset;
+        std::uint32_t mask;
+    };
+
+    using capability_enable = std::variant<vk::feature, detail::extension_enable, detail::property_enable>;
+
+    struct capability_info {
+        std::uint32_t value;
+        std::string_view name;
+        std::span<const detail::capability_enable> enables;
+    };
+
     extern const std::span<const detail::feature_info> feature_table;
     extern const std::span<const detail::feature_alias> feature_aliases;
+    extern const std::span<const detail::capability_info> capability_table;
 
     class feature_chain {
       private:
