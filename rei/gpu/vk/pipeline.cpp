@@ -9,18 +9,38 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <vulkan/vulkan_core.h>
 
 #include "rei/core/error.hpp"
+#include "rei/gpu/vk/detail/features.hpp"
 #include "rei/gpu/vk/detail/formats.hpp"
 #include "rei/gpu/vk/detail/state.hpp"
 #include "rei/gpu/vk/error_code.hpp"
 #include "rei/gpu/vk/pipeline.hpp"
 
 namespace rei::gpu::vk {
+    namespace {
+        auto describe(const detail::capability_enable& enable) -> std::string {
+            return std::visit(
+                []<typename EnableType>(const EnableType& alternative) -> std::string {
+                    if constexpr (std::is_same_v<EnableType, vk::feature>) {
+                        return std::format("the feature {}",
+                                           detail::feature_table[std::to_underlying(alternative)].name);
+                    } else if constexpr (std::is_same_v<EnableType, detail::extension_enable>) {
+                        return std::format("the extension {}", alternative.name);
+                    } else {
+                        return std::string{alternative.name};
+                    }
+                },
+                enable);
+        }
+    } // namespace
+
     auto set_layout::state::lay_out(detail::pipeline_state& pipeline, const vk::device::state& context,
                                     std::span<const vk::shader> shaders, std::span<const vk::set_layout> sets,
                                     std::uint32_t push_constant_size) -> std::expected<void, rei::error> {
@@ -54,6 +74,34 @@ namespace rei::gpu::vk {
                 stage = "vertex";
             } else if (source.stage == vk::shader_stage::fragment) {
                 stage = "fragment";
+            }
+
+            for (const auto capability : source.capabilities) {
+                const auto needed =
+                    std::ranges::find(detail::capability_table, capability, &detail::capability_info::value);
+                if (needed == detail::capability_table.end() ||
+                    std::ranges::any_of(needed->enables,
+                                        [&](const detail::capability_enable& enable) -> bool {
+                                            return context.allows(enable);
+                                        })) {
+                    continue;
+                }
+
+                const auto alternatives =
+                    needed->enables | std::views::transform(describe) | std::ranges::to<std::vector>();
+                auto needs = std::string{"which rei can't enable"};
+                if (!alternatives.empty()) {
+                    const auto others = std::span{alternatives}.first(alternatives.size() - 1) |
+                                        std::views::join_with(std::string_view{", "}) |
+                                        std::ranges::to<std::string>();
+                    needs = std::format("which needs {}{}{}", others, others.empty() ? "" : " or ",
+                                        alternatives.back());
+                }
+
+                return std::unexpected(rei::error{
+                    vk::error_code::missing_feature,
+                    std::format("{}: the {} shader declares {}, {}", what, stage, needed->name, needs),
+                });
             }
 
             if (source.push_constant_size > push_constant_size) {

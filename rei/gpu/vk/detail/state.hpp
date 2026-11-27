@@ -31,6 +31,7 @@
 #include "rei/gpu/vk/commands.hpp"
 #include "rei/gpu/vk/descriptor.hpp"
 #include "rei/gpu/vk/detail/access.hpp"
+#include "rei/gpu/vk/detail/features.hpp"
 #include "rei/gpu/vk/device.hpp"
 #include "rei/gpu/vk/error_code.hpp"
 #include "rei/gpu/vk/image.hpp"
@@ -285,10 +286,12 @@ namespace rei::gpu::vk {
         vk::instance instance;
         vk::physical_device physical;
         VkPhysicalDeviceLimits limits{};
+        detail::device_properties properties;
         VkDevice handle{};
         volk::VolkDeviceTable table{};
         VmaAllocator allocator{};
         std::vector<bool> features;
+        std::vector<std::string> extensions;
         bool tracing{};
         bool labeling{};
         bool presenting{};
@@ -317,6 +320,7 @@ namespace rei::gpu::vk {
         auto take_pool() -> std::expected<detail::command_pool, rei::error>;
 
         auto retire(detail::retired item) -> void;
+        [[nodiscard]] auto allows(const detail::capability_enable& enable) const -> bool;
         auto collect(std::uint64_t idle_through = 0) -> void;
         auto release(std::span<const detail::retired> items) -> void;
 
@@ -404,6 +408,7 @@ namespace rei::gpu::vk {
         vk::extent local_size{};
         std::vector<detail::shader_binding> bindings;
         std::vector<detail::shader_input> inputs;
+        std::vector<std::uint32_t> capabilities;
         std::uint32_t push_constant_size{};
         bool writes{};
     };

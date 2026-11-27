@@ -5,6 +5,8 @@
 #include "gtest/gtest.h"
 
 #include "rei/core/tests.hpp"
+#include "rei/gpu/tests/shaders/lanes.hpp"
+#include "rei/gpu/tests/shaders/numbered.hpp"
 #include "rei/gpu/tests/support.hpp"
 #include "rei/gpu/vk.hpp"
 
@@ -54,5 +56,30 @@ namespace rei::gpu::tests {
         EXPECT_TRUE(
             has_error(vk::device::make(instance(), {.extensions = {"VK_REI_missing"}, .physical = physical}),
                       vk::error_code::missing_extension, "lacks the extension VK_REI_missing"));
+    }
+
+    TEST_F(vulkan,
+           a_pipeline_whose_shader_needs_a_feature_the_device_has_not_enabled_is_refused_with_its_name) {
+        const auto numbered = shaders::numbered::vertex();
+        const auto lanes = shaders::lanes::compute();
+        ASSERT_TRUE(numbered) << numbered.error();
+        ASSERT_TRUE(lanes) << lanes.error();
+
+        EXPECT_TRUE(
+            has_error(vk::graphics_pipeline::make(device(), {.vertex = *numbered, .name = "numbered"}),
+                      vk::error_code::missing_feature,
+                      "graphics pipeline 'numbered': the vertex shader declares DrawParameters, which needs "
+                      "the feature shader_draw_parameters or the extension VK_KHR_shader_draw_parameters"));
+
+        const auto drawing = vk::device::make(instance(), {.require = {vk::feature::shader_draw_parameters}});
+        ASSERT_TRUE(drawing) << drawing.error();
+        const auto made = vk::graphics_pipeline::make(*drawing, {.vertex = *numbered, .name = "numbered"});
+        EXPECT_TRUE(made) << made.error();
+
+        const auto layout =
+            vk::set_layout::make(device(), {.bindings = shaders::lanes::set_0::bindings(), .pushed = true});
+        ASSERT_TRUE(layout) << layout.error();
+        const auto counted = vk::compute_pipeline::make(device(), {.shader = *lanes, .sets = {*layout}});
+        EXPECT_TRUE(counted) << counted.error();
     }
 } // namespace rei::gpu::tests

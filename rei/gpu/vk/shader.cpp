@@ -199,10 +199,15 @@ namespace rei::gpu::vk {
             }
         }
 
-        state->writes =
-            state->writes ||
-            std::ranges::contains(std::span{reflected.capabilities, reflected.capability_count},
-                                  SpvCapabilityPhysicalStorageBufferAddresses, &SpvReflectCapability::value);
+        state->capabilities =
+            std::span{reflected.capabilities, reflected.capability_count} |
+            std::views::transform([](const SpvReflectCapability& capability) -> std::uint32_t {
+                return std::bit_cast<std::uint32_t>(capability.value);
+            }) |
+            std::ranges::to<std::vector>();
+        state->writes = state->writes ||
+                        std::ranges::contains(state->capabilities,
+                                              std::uint32_t{SpvCapabilityPhysicalStorageBufferAddresses});
 
         return vk::shader{std::move(state)};
     }

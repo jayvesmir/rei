@@ -1,7 +1,9 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <expected>
 #include <format>
 #include <limits>
@@ -13,7 +15,9 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <vulkan/vulkan_core.h>
@@ -40,6 +44,7 @@ namespace rei::gpu::vk {
         struct candidate {
             vk::physical_device physical;
             VkPhysicalDeviceLimits limits;
+            detail::device_properties properties;
             std::uint32_t queue_family;
             std::vector<bool> features;
             std::vector<std::string> extensions;
@@ -58,6 +63,15 @@ namespace rei::gpu::vk {
                                 VK_API_VERSION_MINOR(properties.apiVersion)),
                 });
             }
+
+            auto shading = detail::device_properties{};
+            shading.vulkan_11.pNext = &shading.vulkan_12;
+            auto queried = VkPhysicalDeviceProperties2{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+                .pNext = &shading.vulkan_11,
+            };
+            table.vkGetPhysicalDeviceProperties2(physical.handle, &queried);
+            shading.vulkan_11.pNext = nullptr;
 
             auto family_count = std::uint32_t{};
             table.vkGetPhysicalDeviceQueueFamilyProperties(physical.handle, &family_count, nullptr);
@@ -116,6 +130,7 @@ namespace rei::gpu::vk {
             auto chosen = candidate{
                 .physical = physical,
                 .limits = properties.limits,
+                .properties = shading,
                 .queue_family = *family,
                 .features = std::vector<bool>(detail::feature_table.size()),
                 .extensions = {},
@@ -240,6 +255,24 @@ namespace rei::gpu::vk {
         }
 
         return pool;
+    }
+
+    auto device::state::allows(const detail::capability_enable& enable) const -> bool {
+        return std::visit(
+            [&]<typename EnableType>(const EnableType& alternative) -> bool {
+                if constexpr (std::is_same_v<EnableType, vk::feature>) {
+                    return features[std::to_underlying(alternative)];
+                } else if constexpr (std::is_same_v<EnableType, detail::extension_enable>) {
+                    return std::ranges::contains(extensions, alternative.name);
+                } else {
+                    auto value = std::uint32_t{};
+                    std::memcpy(&value,
+                                std::as_bytes(std::span{&properties, 1}).subspan(alternative.offset).data(),
+                                sizeof(value));
+                    return (value & alternative.mask) == alternative.mask;
+                }
+            },
+            enable);
     }
 
     auto device::state::retire(detail::retired item) -> void {
@@ -445,7 +478,9 @@ namespace rei::gpu::vk {
         state->table.vkGetDeviceQueue(state->handle, chosen->queue_family, 0, &state->queue.handle);
         state->queue.family = chosen->queue_family;
         state->limits = chosen->limits;
+        state->properties = chosen->properties;
         state->features = std::move(chosen->features);
+        state->extensions = std::move(chosen->extensions);
         state->presenting = options.surface.has_value();
         state->tracing = context.trace;
         state->labeling = (context.trace || context.validation != vk::validation::none) &&
