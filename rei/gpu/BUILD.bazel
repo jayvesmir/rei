@@ -1,0 +1,120 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("//rei:copts.bzl", "CXXOPTS")
+load("//rei/gpu:vk/vocabulary.bzl", "vk_vocabulary_headers")
+
+cc_library(
+    name = "vk_error",
+    include_prefix = "gpu",
+
+    hdrs = ["vk/error_code.hpp"],
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "vk_allocator",
+
+    srcs = ["vk/detail/allocator.cpp"],
+
+    deps = ["@vulkan_memory_allocator"],
+
+    copts = select({
+        "@platforms//os:windows": ["/w"],
+        "//conditions:default": ["-w"],
+    }),
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:private"],
+)
+
+vk_vocabulary_headers(
+    name = "vk_vocabulary",
+
+    srcs = [
+        "@rei_vk_vocabulary//:feature.hpp",
+        "@rei_vk_vocabulary//:format.hpp",
+    ],
+)
+
+cc_library(
+    name = "vk",
+    include_prefix = "gpu",
+
+    srcs = [
+        "vk/detail/access.hpp",
+        "vk/detail/features.hpp",
+        "vk/detail/formats.hpp",
+        "vk/detail/loader.cpp",
+        "vk/detail/loader.hpp",
+        "vk/detail/state.hpp",
+
+        "vk/blit.cpp",
+        "vk/buffer.cpp",
+        "vk/commands.cpp",
+        "vk/compute_pass.cpp",
+        "vk/descriptor.cpp",
+        "vk/device.cpp",
+        "vk/feature.cpp",
+        "vk/image.cpp",
+        "vk/instance.cpp",
+        "vk/pass.cpp",
+        "vk/pipeline.cpp",
+        "vk/queue.cpp",
+        "vk/render_pass.cpp",
+        "vk/shader.cpp",
+        "vk/swapchain.cpp",
+
+        "@rei_vk_vocabulary//:capability_table.cpp",
+        "@rei_vk_vocabulary//:feature_table.cpp",
+        "@rei_vk_vocabulary//:format_table.cpp",
+    ],
+
+    hdrs = [
+        "vk.hpp",
+        "vk/buffer.hpp",
+        "vk/commands.hpp",
+        "vk/descriptor.hpp",
+        "vk/device.hpp",
+        "vk/image.hpp",
+        "vk/instance.hpp",
+        "vk/pipeline.hpp",
+        "vk/raw.hpp",
+        "vk/shader.hpp",
+        "vk/swapchain.hpp",
+        "vk/vocabulary.hpp",
+
+        ":vk_vocabulary",
+    ],
+
+    deps = [
+        ":vk_allocator",
+        ":vk_error",
+        "//rei/core:error",
+        "@spirv_reflect",
+        "@spirv_tools",
+        "@volk",
+        "@vulkan_headers",
+        "@vulkan_memory_allocator",
+    ],
+
+    linkopts = select({
+        "@platforms//os:linux": ["-ldl"],
+        "//conditions:default": [],
+    }),
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:public"]
+)
+
+cc_binary(
+    name = "vk_interface",
+
+    srcs = ["vk/tools/interface.cpp"],
+
+    deps = ["@spirv_reflect"],
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:public"]
+)

@@ -1,0 +1,13 @@
+#pragma once
+
+#include "rei/gpu/vk/buffer.hpp"
+#include "rei/gpu/vk/commands.hpp"
+#include "rei/gpu/vk/descriptor.hpp"
+#include "rei/gpu/vk/device.hpp"
+#include "rei/gpu/vk/error_code.hpp"
+#include "rei/gpu/vk/image.hpp"
+#include "rei/gpu/vk/instance.hpp"
+#include "rei/gpu/vk/pipeline.hpp"
+#include "rei/gpu/vk/shader.hpp"
+#include "rei/gpu/vk/swapchain.hpp"
+#include "rei/gpu/vk/vocabulary.hpp"

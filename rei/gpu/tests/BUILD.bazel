@@ -1,0 +1,163 @@
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_vulkan//vulkan:defs.bzl", "glsl_shader", "slang_shader")
+load("//rei:copts.bzl", "CXXOPTS")
+load("//rei/gpu:vk/shaders.bzl", "vk_shaders")
+
+config_setting(
+    name = "linux_arm64",
+
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+SHADER_COMPILER = select({
+    ":linux_arm64": ["@platforms//:incompatible"],
+    "//conditions:default": [],
+})
+
+GLSL = {
+    "post.frag": "fragment",
+    "post.vert": "vertex",
+}
+
+REFLECTOR_REGRESSIONS = [
+    "deep_array.comp",
+    "long_name.comp",
+]
+
+SLANG = [
+    "doubling",
+    "fill",
+    "gather",
+    "increment",
+    "kernels",
+    "lanes",
+    "mark",
+    "numbered",
+    "scene",
+    "surface",
+    "triangle",
+]
+
+PIPELINES = {
+    "doubling": [":doubling.spv"],
+    "fill": [":fill.spv"],
+    "gather": [":gather.spv"],
+    "increment": [":increment.spv"],
+    "lanes": [":lanes.spv"],
+    "mark": [":mark.spv"],
+    "numbered": [":numbered.spv"],
+    "post": [":post.vert.spv", ":post.frag.spv"],
+    "scale": [":kernels.spv"],
+    "scene": [":scene.spv"],
+    "shift": [":kernels.spv"],
+    "surface": [":surface.spv"],
+    "triangle": [":triangle.spv"],
+}
+
+KERNELS = [
+    "scale",
+    "shift",
+]
+
+[
+    glsl_shader(
+        name = shader + ".spv",
+
+        src = "shaders/" + shader,
+        stage = stage,
+
+        target_env = "vulkan1.4",
+
+        target_compatible_with = SHADER_COMPILER,
+    )
+    for shader, stage in GLSL.items()
+]
+
+[
+    slang_shader(
+        name = shader + ".spv",
+
+        srcs = ["shaders/" + shader + ".slang"],
+
+        target = "spirv",
+        opts = [
+            "-fvk-use-entrypoint-name",
+            "-matrix-layout-column-major",
+        ],
+
+        target_compatible_with = SHADER_COMPILER,
+    )
+    for shader in SLANG
+]
+
+[
+    vk_shaders(
+        name = pipeline,
+
+        srcs = srcs,
+        entry_points = [pipeline] if pipeline in KERNELS else [],
+
+        out = "shaders/" + pipeline + ".hpp",
+
+        target_compatible_with = SHADER_COMPILER,
+    )
+    for pipeline, srcs in PIPELINES.items()
+]
+
+[
+    glsl_shader(
+        name = "words_" + shader,
+
+        src = "shaders/" + shader,
+        stage = "compute",
+
+        target_env = "vulkan1.4",
+        opts = ["-mfmt=num"],
+
+        target_compatible_with = SHADER_COMPILER,
+    )
+    for shader in REFLECTOR_REGRESSIONS
+]
+
+[
+    copy_file(
+        name = "copy_" + shader,
+
+        src = ":words_" + shader,
+        out = "shaders/" + shader + ".inc",
+
+        target_compatible_with = SHADER_COMPILER,
+    )
+    for shader in REFLECTOR_REGRESSIONS
+]
+
+cc_test(
+    name = "tests",
+    size = "small",
+
+    srcs = [
+        "canary.cpp",
+        "compute.cpp",
+        "device.cpp",
+        "interface.cpp",
+        "present.cpp",
+        "render.cpp",
+        "support.hpp",
+        "transfer.cpp",
+        "vocabulary.cpp",
+    ] + ["shaders/" + shader + ".inc" for shader in REFLECTOR_REGRESSIONS],
+
+    deps = [
+        "//rei/core:error",
+        "//rei/gpu:vk",
+        "@googletest//:gtest_main",
+    ] + [":" + pipeline for pipeline in PIPELINES],
+
+    linkstatic = True,
+
+    cxxopts = CXXOPTS,
+)
