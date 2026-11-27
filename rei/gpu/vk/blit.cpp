@@ -25,7 +25,9 @@ namespace rei::gpu::vk {
 
         const auto& from = *source.m_state;
         const auto& into = *destination.m_state;
-        const auto call = std::format("blit from {} into {}", from.quoted(), into.quoted());
+        const auto call = [&] -> std::string {
+            return std::format("blit from {} into {}", from.quoted(), into.quoted());
+        };
         const auto origin = self.alive(call, from);
         const auto target = self.alive(call, into);
         if (!origin || !target) {
@@ -40,25 +42,25 @@ namespace rei::gpu::vk {
             !vk::has(target->usage, vk::image_usage::transfer_dst)) {
             self.fail(vk::error_code::invalid_argument,
                       std::format("{}: the source needs the transfer_src usage, the destination transfer_dst",
-                                  call));
+                                  call()));
             return;
         }
         if (origin->samples != 1 || target->samples != 1) {
             self.fail(
                 vk::error_code::invalid_argument,
-                std::format("{}: a multisampled image is resolved by a render pass, not blitted", call));
+                std::format("{}: a multisampled image is resolved by a render pass, not blitted", call()));
             return;
         }
         if (from.range.layerCount != into.range.layerCount) {
             self.fail(vk::error_code::invalid_argument,
-                      std::format("{}: the source has {} array layers and the destination {}", call,
+                      std::format("{}: the source has {} array layers and the destination {}", call(),
                                   from.range.layerCount, into.range.layerCount));
             return;
         }
         if (origin == target && from.range.baseMipLevel == into.range.baseMipLevel &&
             from.range.baseArrayLayer < into.range.baseArrayLayer + into.range.layerCount &&
             into.range.baseArrayLayer < from.range.baseArrayLayer + from.range.layerCount) {
-            self.fail(vk::error_code::invalid_argument, std::format("{}: the two overlap", call));
+            self.fail(vk::error_code::invalid_argument, std::format("{}: the two overlap", call()));
             return;
         }
 
@@ -79,7 +81,7 @@ namespace rei::gpu::vk {
             origin_format.numeric != target_format.numeric ||
             (!colors && (origin->format != target->format || filter != vk::filter::nearest))) {
             self.fail(vk::error_code::invalid_argument,
-                      std::format("{}: '{}' can't blit {} into {} with the {} filter", call, physical.name,
+                      std::format("{}: '{}' can't blit {} into {} with the {} filter", call(), physical.name,
                                   origin_format.name, target_format.name,
                                   filter == vk::filter::nearest ? "nearest" : "linear"));
             return;

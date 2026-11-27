@@ -124,7 +124,7 @@ namespace rei::gpu::vk {
                 vk::error_code::invalid_argument,
                 std::format("dispatch_indirect in {}: {} needs the indirect_buffer usage and {} bytes at "
                             "an offset that is a multiple of 4, and it has {} at offset {}",
-                            self.compute->label, detail::quoted(buffer.name, "buffer"),
+                            self.compute->label(), detail::quoted(buffer.name, "buffer"),
                             sizeof(VkDispatchIndirectCommand), buffer.size, offset));
             return;
         }

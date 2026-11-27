@@ -77,24 +77,14 @@ namespace rei::gpu::vk {
 
     auto commands::state::outside(std::string_view call) -> bool {
         if (compute) {
-            fail(vk::error_code::invalid_argument, std::format("{}: {} is still open", call, compute->label));
+            fail(vk::error_code::invalid_argument,
+                 std::format("{}: {} is still open", call, compute->label()));
         } else if (render) {
-            fail(vk::error_code::invalid_argument, std::format("{}: {} is still open", call, render->label));
+            fail(vk::error_code::invalid_argument,
+                 std::format("{}: {} is still open", call, render->label()));
         }
 
         return !failure;
-    }
-
-    auto commands::state::alive(std::string_view call, const image_view::state& view)
-        -> std::shared_ptr<image::state> {
-        auto image = view.image.lock();
-        if (!image) {
-            fail(vk::error_code::invalid_argument,
-                 std::format("{}: {} was destroyed", call,
-                             view.own ? "it" : detail::quoted(view.image_name, "its image")));
-        }
-
-        return image;
     }
 
     auto commands::state::begin(std::string_view workflow) const -> void {
@@ -348,8 +338,11 @@ namespace rei::gpu::vk {
 
         if (self.outside("compute")) {
             auto& scope = self.compute.emplace();
-            scope.label = detail::quoted(options.name, "compute pass");
-            scope.workflow = options.name.empty() ? "compute" : std::format("compute {}", options.name);
+            scope.kind = "compute pass";
+            scope.name = options.name;
+            if (self.device->tracing || self.device->labeling) {
+                scope.workflow = options.name.empty() ? "compute" : std::format("compute {}", options.name);
+            }
             scope.bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
             scope.concurrent = options.concurrent;
 
@@ -842,7 +835,8 @@ namespace rei::gpu::vk {
             }
 
             const auto& view = *target.m_state;
-            const auto image = self.alive(std::format("barrier on {}", view.quoted()), view);
+            const auto image =
+                self.alive([&] -> std::string { return std::format("barrier on {}", view.quoted()); }, view);
             if (!image) {
                 return;
             }

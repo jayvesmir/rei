@@ -518,12 +518,15 @@ namespace rei::gpu::vk {
         };
 
         struct scope {
-            std::string label;
+            std::string_view kind;
+            std::string name;
             std::string workflow;
             VkPipelineBindPoint bind_point{};
             std::shared_ptr<const detail::pipeline_state> pipeline;
             std::vector<state::bound_set> sets;
             bool wrote{};
+
+            [[nodiscard]] auto label() const -> std::string { return detail::quoted(name, kind); }
         };
 
         struct compute_scope : state::scope {
@@ -569,7 +572,6 @@ namespace rei::gpu::vk {
         auto fail(std::error_code code, std::string detail) -> void;
         auto outside(std::string_view call) -> bool;
         auto inside(bool open, std::string_view call, std::string_view pass) -> bool;
-        auto alive(std::string_view call, const image_view::state& view) -> std::shared_ptr<image::state>;
 
         template <typename StateType>
         auto usable(const std::shared_ptr<StateType>& resource, std::string_view call, std::string_view kind)
@@ -582,6 +584,18 @@ namespace rei::gpu::vk {
             }
 
             return !failure;
+        }
+
+        template <typename CallType>
+        auto alive(const CallType& call, const image_view::state& view) -> std::shared_ptr<image::state> {
+            auto image = view.image.lock();
+            if (!image) {
+                fail(vk::error_code::invalid_argument,
+                     std::format("{}: {} was destroyed", call(),
+                                 view.own ? "it" : detail::quoted(view.image_name, "its image")));
+            }
+
+            return image;
         }
 
         template <typename... Args>

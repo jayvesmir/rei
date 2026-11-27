@@ -29,7 +29,7 @@ namespace rei::gpu::vk {
         if (!scope.pipeline) {
             fail(vk::error_code::invalid_argument,
                  std::format("bind of {} in {}: no pipeline is bound",
-                             detail::quoted(bound.name, "descriptor set"), scope.label));
+                             detail::quoted(bound.name, "descriptor set"), scope.label()));
             return;
         }
 
@@ -38,7 +38,7 @@ namespace rei::gpu::vk {
             if (set >= pipeline.sets.size()) {
                 fail(vk::error_code::invalid_argument,
                      std::format("bind of {} in {}: set {} isn't in {}, which has {}",
-                                 detail::quoted(bound.name, "descriptor set"), scope.label, set,
+                                 detail::quoted(bound.name, "descriptor set"), scope.label(), set,
                                  detail::quoted(pipeline.name, pipeline.kind), pipeline.sets.size()));
                 return;
             }
@@ -48,7 +48,7 @@ namespace rei::gpu::vk {
                 (expected->pushed || bound.layout->bindings != expected->bindings)) {
                 fail(vk::error_code::invalid_argument,
                      std::format("bind of {} in {}: it was made with {}, and set {} of {} has {}",
-                                 detail::quoted(bound.name, "descriptor set"), scope.label,
+                                 detail::quoted(bound.name, "descriptor set"), scope.label(),
                                  detail::quoted(bound.layout->name, "set layout"), set,
                                  detail::quoted(pipeline.name, pipeline.kind),
                                  detail::quoted(expected->name, "set layout")));
@@ -75,7 +75,7 @@ namespace rei::gpu::vk {
                                            std::span<const vk::descriptor> descriptors) -> void {
         if (!scope.pipeline || scope.pipeline->adopted) {
             fail(vk::error_code::invalid_argument,
-                 std::format("push_descriptors in {}: {}", scope.label,
+                 std::format("push_descriptors in {}: {}", scope.label(),
                              scope.pipeline ? "an adopted pipeline takes them through raw calls"
                                             : "no pipeline is bound"));
             return;
@@ -85,7 +85,7 @@ namespace rei::gpu::vk {
         if (set >= pipeline.sets.size() || !pipeline.sets[set].m_state->pushed) {
             fail(
                 vk::error_code::invalid_argument,
-                std::format("push_descriptors in {}: set {} of {} {}", scope.label, set,
+                std::format("push_descriptors in {}: set {} of {} {}", scope.label(), set,
                             detail::quoted(pipeline.name, pipeline.kind),
                             set < pipeline.sets.size() ? "has a layout that isn't pushed" : "doesn't exist"));
             return;
@@ -94,7 +94,7 @@ namespace rei::gpu::vk {
         const auto resolved = pipeline.sets[set].m_state->resolve(descriptors, VK_NULL_HANDLE);
         if (!resolved) {
             fail(vk::error_code::invalid_argument,
-                 std::format("push_descriptors in {}: {}", scope.label, resolved.error()));
+                 std::format("push_descriptors in {}: {}", scope.label(), resolved.error()));
             return;
         }
 
@@ -107,7 +107,7 @@ namespace rei::gpu::vk {
     auto commands::state::push_constants(const state::scope& scope, std::span<const std::byte> data) -> void {
         if (!scope.pipeline || scope.pipeline->adopted) {
             fail(vk::error_code::invalid_argument,
-                 std::format("push_constants in {}: {}", scope.label,
+                 std::format("push_constants in {}: {}", scope.label(),
                              scope.pipeline ? "an adopted pipeline takes them through raw calls"
                                             : "no pipeline is bound"));
             return;
@@ -117,7 +117,7 @@ namespace rei::gpu::vk {
         if (data.size() != pipeline.push_constant_size) {
             fail(vk::error_code::invalid_argument,
                  std::format("push_constants in {}: {} bytes given, and the push_constant_size of {} is {}",
-                             scope.label, data.size(), detail::quoted(pipeline.name, pipeline.kind),
+                             scope.label(), data.size(), detail::quoted(pipeline.name, pipeline.kind),
                              pipeline.push_constant_size));
             return;
         }
@@ -129,7 +129,7 @@ namespace rei::gpu::vk {
     auto commands::state::readable(const state::scope& scope, std::string_view call) -> bool {
         if (!scope.pipeline) {
             fail(vk::error_code::invalid_argument,
-                 std::format("{} in {}: no pipeline is bound", call, scope.label));
+                 std::format("{} in {}: no pipeline is bound", call, scope.label()));
             return false;
         }
 
@@ -141,7 +141,7 @@ namespace rei::gpu::vk {
             if (!reads.empty() && !bound.pushed && !bound.allocated) {
                 fail(vk::error_code::invalid_argument,
                      std::format("{} in {}: {} reads set {}, and nothing is bound or pushed there", call,
-                                 scope.label, detail::quoted(pipeline.name, pipeline.kind), index));
+                                 scope.label(), detail::quoted(pipeline.name, pipeline.kind), index));
                 return false;
             }
             if (!bound.allocated) {
@@ -152,7 +152,7 @@ namespace rei::gpu::vk {
                 if (std::ranges::contains(reads, reference.binding) && reference.resource.expired()) {
                     fail(vk::error_code::invalid_argument,
                          std::format("{} in {}: {} binding {} refers to {}, which was destroyed", call,
-                                     scope.label, detail::quoted(bound.allocated->name, "descriptor set"),
+                                     scope.label(), detail::quoted(bound.allocated->name, "descriptor set"),
                                      reference.binding, reference.target));
                     return false;
                 }

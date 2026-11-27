@@ -30,8 +30,11 @@ namespace rei::gpu::vk {
         }
 
         auto scope = state::render_scope{};
-        scope.label = detail::quoted(options.name, "render pass");
-        scope.workflow = options.name.empty() ? "render" : std::format("render {}", options.name);
+        scope.kind = "render pass";
+        scope.name = options.name;
+        if (self.device->tracing || self.device->labeling) {
+            scope.workflow = options.name.empty() ? "render" : std::format("render {}", options.name);
+        }
         scope.bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
 
         constexpr auto unbounded = std::numeric_limits<std::uint32_t>::max();
@@ -42,13 +45,17 @@ namespace rei::gpu::vk {
         const auto admit = [&](const vk::image_view& target, vk::image_usage usage,
                                bool resolving) -> std::shared_ptr<image::state> {
             const auto verb = std::string_view{resolving ? "resolve into" : "render into"};
-            if (!self.usable(target.m_state, std::format("{} an image view in {}", verb, scope.label),
+            if (!self.usable(target.m_state,
+                             resolving ? "resolve into an image view in a render pass"
+                                       : "render into an image view in a render pass",
                              "image view")) {
                 return nullptr;
             }
 
             const auto& view = *target.m_state;
-            const auto call = std::format("{} {} in {}", verb, view.quoted(), scope.label);
+            const auto call = [&] -> std::string {
+                return std::format("{} {} in {}", verb, view.quoted(), scope.label());
+            };
             auto image = self.alive(call, view);
             if (!image) {
                 return nullptr;
@@ -60,31 +67,31 @@ namespace rei::gpu::vk {
 
             if (!vk::has(image->usage, usage)) {
                 self.fail(vk::error_code::invalid_argument,
-                          std::format("{}: its usage lacks {}", call,
+                          std::format("{}: its usage lacks {}", call(),
                                       coloring ? "color_attachment" : "depth_stencil_attachment"));
                 return nullptr;
             }
             if ((format.aspects & (coloring ? VK_IMAGE_ASPECT_COLOR_BIT : VK_IMAGE_ASPECT_DEPTH_BIT)) == 0) {
                 self.fail(vk::error_code::invalid_argument,
-                          std::format("{}: {} has no {}", call, format.name, coloring ? "color" : "depth"));
+                          std::format("{}: {} has no {}", call(), format.name, coloring ? "color" : "depth"));
                 return nullptr;
             }
             if (view.range.levelCount != 1 || image->extent.depth != 1) {
                 self.fail(vk::error_code::invalid_argument,
                           std::format("{}: a target is a view of one mip level of a 2D image, and this one "
                                       "has {} levels and a depth of {}",
-                                      call, view.range.levelCount, image->extent.depth));
+                                      call(), view.range.levelCount, image->extent.depth));
                 return nullptr;
             }
             if (layers && view.range.layerCount != *layers) {
                 self.fail(vk::error_code::invalid_argument,
-                          std::format("{}: it has {} array layers, and the targets before it have {}", call,
+                          std::format("{}: it has {} array layers, and the targets before it have {}", call(),
                                       view.range.layerCount, *layers));
                 return nullptr;
             }
             if (wanted && image->samples != *wanted) {
                 self.fail(vk::error_code::invalid_argument,
-                          std::format("{}: it has {} samples, and {} {}", call, image->samples,
+                          std::format("{}: it has {} samples, and {} {}", call(), image->samples,
                                       resolving ? "a resolve target has" : "the targets before it have",
                                       *wanted));
                 return nullptr;
@@ -138,8 +145,9 @@ namespace rei::gpu::vk {
                 self.fail(vk::error_code::invalid_argument,
                           std::format("resolve into {} in {}: it takes a multisampled target of its own "
                                       "format, and {} is {} with {} samples",
-                                      resolve.m_state->quoted(), scope.label, target.target.m_state->quoted(),
-                                      detail::info_of(image->format).name, image->samples));
+                                      resolve.m_state->quoted(), scope.label(),
+                                      target.target.m_state->quoted(), detail::info_of(image->format).name,
+                                      image->samples));
                 return vk::render_pass{*this};
             }
 
@@ -189,7 +197,7 @@ namespace rei::gpu::vk {
             self.fail(vk::error_code::invalid_argument,
                       std::format("{}: it has {} color targets and {} depth target, and it needs a target "
                                   "and at most {} color targets",
-                                  scope.label, colors.size(), options.depth ? "a" : "no",
+                                  scope.label(), colors.size(), options.depth ? "a" : "no",
                                   limits.maxColorAttachments));
             return vk::render_pass{*this};
         }
@@ -200,7 +208,7 @@ namespace rei::gpu::vk {
             !detail::fits(extent.height, static_cast<std::uint32_t>(area.y), area.height)) {
             self.fail(vk::error_code::invalid_argument,
                       std::format("{}: the area {}x{} at {},{} isn't inside its targets of {}x{}",
-                                  scope.label, area.width, area.height, area.x, area.y, extent.width,
+                                  scope.label(), area.width, area.height, area.x, area.y, extent.width,
                                   extent.height));
             return vk::render_pass{*this};
         }
@@ -268,14 +276,14 @@ namespace rei::gpu::vk {
             if (binding >= scope.vertex_buffers.size() || !scope.vertex_buffers[binding]) {
                 self.fail(vk::error_code::invalid_argument,
                           std::format("{} in {}: {} reads vertex buffer {}, and none is bound there", call,
-                                      scope.label, detail::quoted(pipeline.name, pipeline.kind), binding));
+                                      scope.label(), detail::quoted(pipeline.name, pipeline.kind), binding));
                 return false;
             }
         }
         if (pipeline.writes && !scope.waited) {
             self.fail(vk::error_code::invalid_argument,
                       std::format("{} in {}: {} writes storage and was made after the pass began", call,
-                                  scope.label, detail::quoted(pipeline.name, pipeline.kind)));
+                                  scope.label(), detail::quoted(pipeline.name, pipeline.kind)));
             return false;
         }
 
@@ -289,8 +297,7 @@ namespace rei::gpu::vk {
         -> bool {
         auto& self = *m_commands.m_state;
 
-        if (!self.inside(m_open, call, "render pass") ||
-            !self.usable(arguments.m_state, std::format("{} in a render pass", call), "buffer")) {
+        if (!self.inside(m_open, call, "render pass") || !self.usable(arguments.m_state, call, "buffer")) {
             return false;
         }
 
@@ -301,7 +308,7 @@ namespace rei::gpu::vk {
             self.fail(vk::error_code::invalid_argument,
                       std::format("{} in {}: {} needs the indirect_buffer usage and {} bytes at an offset "
                                   "that is a multiple of 4, and it has {} at offset {}",
-                                  call, self.render->label, detail::quoted(buffer.name, "buffer"),
+                                  call, self.render->label(), detail::quoted(buffer.name, "buffer"),
                                   count * stride, buffer.size, offset));
             return false;
         }
@@ -310,7 +317,7 @@ namespace rei::gpu::vk {
             self.fail(vk::error_code::invalid_argument,
                       std::format("{} in {}: {} draws, and '{}' allows {} with the feature "
                                   "multi_draw_indirect and 1 without",
-                                  call, self.render->label, count, context.physical.name,
+                                  call, self.render->label(), count, context.physical.name,
                                   context.limits.maxDrawIndirectCount));
             return false;
         }
@@ -349,7 +356,7 @@ namespace rei::gpu::vk {
             };
             self.fail(vk::error_code::invalid_argument,
                       std::format("bind of {} in {}: it was made for {}, and the pass has {}",
-                                  detail::quoted(bound.name, bound.kind), scope.label,
+                                  detail::quoted(bound.name, bound.kind), scope.label(),
                                   describe(bound.targets), describe(scope.formats)));
             return;
         }
@@ -399,7 +406,7 @@ namespace rei::gpu::vk {
 
         if (binding >= context.limits.maxVertexInputBindings) {
             self.fail(vk::error_code::invalid_argument,
-                      std::format("bind_vertex_buffer in {}: binding {}, and '{}' has {}", scope.label,
+                      std::format("bind_vertex_buffer in {}: binding {}, and '{}' has {}", scope.label(),
                                   binding, context.physical.name, context.limits.maxVertexInputBindings));
             return;
         }
@@ -407,7 +414,7 @@ namespace rei::gpu::vk {
             self.fail(vk::error_code::invalid_argument,
                       std::format("bind_vertex_buffer in {}: {} needs the vertex_buffer usage and bytes "
                                   "past offset {}, and it has {}",
-                                  scope.label, detail::quoted(bound.name, "buffer"), offset, bound.size));
+                                  scope.label(), detail::quoted(bound.name, "buffer"), offset, bound.size));
             return;
         }
 
@@ -435,7 +442,7 @@ namespace rei::gpu::vk {
             self.fail(vk::error_code::invalid_argument,
                       std::format("bind_index_buffer in {}: {} needs the index_buffer usage and bytes past "
                                   "an offset that is a multiple of {}, and it has {} at offset {}",
-                                  scope.label, detail::quoted(bound.name, "buffer"), size, bound.size,
+                                  scope.label(), detail::quoted(bound.name, "buffer"), size, bound.size,
                                   offset));
             return;
         }
@@ -496,7 +503,7 @@ namespace rei::gpu::vk {
         auto& self = *m_commands.m_state;
         if (!self.render->index_buffer) {
             self.fail(vk::error_code::invalid_argument,
-                      std::format("draw_indexed in {}: no index buffer is bound", self.render->label));
+                      std::format("draw_indexed in {}: no index buffer is bound", self.render->label()));
             return;
         }
 
@@ -527,7 +534,7 @@ namespace rei::gpu::vk {
         if (!self.render->index_buffer) {
             self.fail(
                 vk::error_code::invalid_argument,
-                std::format("draw_indexed_indirect in {}: no index buffer is bound", self.render->label));
+                std::format("draw_indexed_indirect in {}: no index buffer is bound", self.render->label()));
             return;
         }
 
