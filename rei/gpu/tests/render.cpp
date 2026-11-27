@@ -176,6 +176,78 @@ namespace rei::gpu::tests {
                   }));
     }
 
+    TEST_F(vulkan, a_depth_target_with_stencil_is_sampled_by_a_later_pass_through_its_depth) {
+        const auto queue = device().queue();
+        const auto depth = vk::image::make(
+            device(), {
+                          .format = vk::format::d32_sfloat_s8_uint,
+                          .extent = {.width = 16, .height = 16},
+                          .usage = vk::image_usage::depth_stencil_attachment | vk::image_usage::sampled,
+                          .name = "depth",
+                      });
+        const auto output = vk::image::make(
+            device(), {
+                          .format = vk::format::r8g8b8a8_unorm,
+                          .extent = {.width = 16, .height = 16},
+                          .usage = vk::image_usage::color_attachment | vk::image_usage::transfer_src,
+                          .name = "output",
+                      });
+        const auto readback = vk::buffer::make(device(), {
+                                                             .size = 16 * 16 * sizeof(pixel),
+                                                             .usage = vk::buffer_usage::transfer_dst,
+                                                             .host = vk::host_access::read_write,
+                                                             .name = "readback",
+                                                         });
+        const auto sampler = vk::sampler::make(device(), {
+                                                             .mag = vk::filter::nearest,
+                                                             .min = vk::filter::nearest,
+                                                         });
+        ASSERT_TRUE(depth) << depth.error();
+        ASSERT_TRUE(output) << output.error();
+        ASSERT_TRUE(readback) << readback.error();
+        ASSERT_TRUE(sampler) << sampler.error();
+
+        const auto layout = vk::set_layout::make(
+            device(), {.bindings = {{.binding = 0, .type = vk::descriptor_type::combined_image_sampler}}});
+        ASSERT_TRUE(layout) << layout.error();
+        auto sampled = vk::descriptor_set::make(device(), {.layout = *layout, .name = "sampled"});
+        ASSERT_TRUE(sampled) << sampled.error();
+        ASSERT_TRUE(sampled->write({{0, *depth, *sampler}}));
+
+        const auto post_vertex = shaders::post::vertex();
+        const auto post_fragment = shaders::post::fragment();
+        ASSERT_TRUE(post_vertex) << post_vertex.error();
+        ASSERT_TRUE(post_fragment) << post_fragment.error();
+        const auto post =
+            vk::graphics_pipeline::make(device(), {
+                                                      .vertex = *post_vertex,
+                                                      .fragment = *post_fragment,
+                                                      .color = {{.format = vk::format::r8g8b8a8_unorm}},
+                                                      .sets = {*layout},
+                                                      .push_constant_size = 4 * sizeof(float),
+                                                      .name = "post",
+                                                  });
+        ASSERT_TRUE(post) << post.error();
+
+        auto commands = queue.record("frame");
+        commands.render({.depth = vk::depth_target{.target = *depth, .clear = 0.5f}, .name = "clear"}).end();
+        {
+            auto pass = commands.render({.color = {{.target = *output}}, .name = "post"});
+            pass.bind(*post);
+            pass.bind(0, *sampled);
+            pass.push_constants(std::array{1.0f, 1.0f, 1.0f, 1.0f});
+            pass.draw({.vertices = 3});
+        }
+        commands.copy(*output, *readback);
+
+        const auto ticket = queue.submit(std::move(commands));
+        ASSERT_TRUE(ticket) << ticket.error();
+        ASSERT_TRUE(device().wait(*ticket));
+
+        const auto drawn = read<pixel>(*readback);
+        EXPECT_NEAR(drawn[(8 * 16) + 8][0], 128, 1);
+    }
+
     TEST_F(vulkan, a_multisampled_scene_with_depth_is_resolved_into_a_target_that_a_second_pass_samples) {
         const auto queue = device().queue();
         const auto multisampled = vk::image::make(device(), {

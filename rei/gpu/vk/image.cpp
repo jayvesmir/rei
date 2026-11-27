@@ -320,12 +320,17 @@ namespace rei::gpu::vk {
             });
         }
 
+        auto viewed = range;
+        if (viewed.aspectMask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) {
+            viewed.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        }
+
         const auto info = VkImageViewCreateInfo{
             .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             .image = image->handle,
             .viewType = type,
             .format = static_cast<VkFormat>(image->format),
-            .subresourceRange = range,
+            .subresourceRange = viewed,
         };
         if (const auto result =
                 context.table.vkCreateImageView(context.handle, &info, nullptr, &state->handle);
