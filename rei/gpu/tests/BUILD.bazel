@@ -1,22 +1,111 @@
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_vulkan//vulkan:defs.bzl", "glsl_shader")
 load("//rei:copts.bzl", "CXXOPTS")
+load("//rei/gpu:vk/shaders.bzl", "vk_shaders")
+
+config_setting(
+    name = "linux_arm64",
+
+    constraint_values = [
+        "@platforms//os:linux",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+SHADER_COMPILER = select({
+    ":linux_arm64": ["@platforms//:incompatible"],
+    "//conditions:default": [],
+})
+
+GLSL = {
+    "double.comp": "compute",
+    "fill.comp": "compute",
+    "increment.comp": "compute",
+}
+
+REFLECTOR_REGRESSIONS = [
+    "deep_array.comp",
+    "long_name.comp",
+]
+
+PIPELINES = {
+    "doubling": [":double.comp.spv"],
+    "fill": [":fill.comp.spv"],
+    "increment": [":increment.comp.spv"],
+}
+
+[
+    glsl_shader(
+        name = shader + ".spv",
+
+        src = "shaders/" + shader,
+        stage = stage,
+
+        target_env = "vulkan1.4",
+
+        target_compatible_with = SHADER_COMPILER,
+    )
+    for shader, stage in GLSL.items()
+]
+
+[
+    vk_shaders(
+        name = pipeline,
+
+        srcs = srcs,
+
+        out = "shaders/" + pipeline + ".hpp",
+
+        target_compatible_with = SHADER_COMPILER,
+    )
+    for pipeline, srcs in PIPELINES.items()
+]
+
+[
+    glsl_shader(
+        name = "words_" + shader,
+
+        src = "shaders/" + shader,
+        stage = "compute",
+
+        target_env = "vulkan1.4",
+        opts = ["-mfmt=num"],
+
+        target_compatible_with = SHADER_COMPILER,
+    )
+    for shader in REFLECTOR_REGRESSIONS
+]
+
+[
+    copy_file(
+        name = "copy_" + shader,
+
+        src = ":words_" + shader,
+        out = "shaders/" + shader + ".inc",
+
+        target_compatible_with = SHADER_COMPILER,
+    )
+    for shader in REFLECTOR_REGRESSIONS
+]
 
 cc_test(
     name = "tests",
     size = "small",
 
     srcs = [
+        "compute.cpp",
         "device.cpp",
         "support.hpp",
         "transfer.cpp",
         "vocabulary.cpp",
-    ],
+    ] + ["shaders/" + shader + ".inc" for shader in REFLECTOR_REGRESSIONS],
 
     deps = [
         "//rei/core:error",
         "//rei/gpu:vk",
         "@googletest//:gtest_main",
-    ],
+    ] + [":" + pipeline for pipeline in PIPELINES],
 
     linkstatic = True,
 
