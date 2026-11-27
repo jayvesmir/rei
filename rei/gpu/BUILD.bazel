@@ -1,3 +1,4 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("//rei:copts.bzl", "CXXOPTS")
 load("//rei/gpu:vk/vocabulary.bzl", "vk_vocabulary_headers")
@@ -101,6 +102,17 @@ cc_library(
         "@platforms//os:linux": ["-ldl"],
         "//conditions:default": [],
     }),
+
+    cxxopts = CXXOPTS,
+    visibility = ["//visibility:public"]
+)
+
+cc_binary(
+    name = "vk_interface",
+
+    srcs = ["vk/tools/interface.cpp"],
+
+    deps = ["@spirv_reflect"],
 
     cxxopts = CXXOPTS,
     visibility = ["//visibility:public"]
