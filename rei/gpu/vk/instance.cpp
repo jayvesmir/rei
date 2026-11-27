@@ -30,10 +30,11 @@ namespace rei::gpu::vk {
         constexpr std::string_view surfaces{VK_KHR_SURFACE_EXTENSION_NAME};
         constexpr std::string_view headless_surfaces{VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME};
 
+        constexpr std::string_view hidden_setting{"syncval_load_op_after_store_op_validation"};
         constexpr auto synchronization_settings = std::to_array<std::string_view>({
             "validate_sync",
             "syncval_shader_accesses_heuristic",
-            "syncval_load_op_after_store_op_validation",
+            hidden_setting,
         });
 
         VKAPI_ATTR auto VKAPI_CALL forward_message(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
@@ -49,12 +50,18 @@ namespace rei::gpu::vk {
                 converted = vk::severity::info;
             }
 
-            const auto& on_message = *static_cast<const std::function<void(const vk::message&)>*>(user);
-            on_message({
+            const auto message = vk::message{
                 .severity = converted,
                 .id = data->pMessageIdName != nullptr ? data->pMessageIdName : "",
                 .text = data->pMessage,
-            });
+            };
+            if (message.id == "VALIDATION-SETTINGS" && message.text.contains(hidden_setting) &&
+                message.text.contains("not recognized")) {
+                return VK_FALSE;
+            }
+
+            const auto& on_message = *static_cast<const std::function<void(const vk::message&)>*>(user);
+            on_message(message);
 
             return VK_FALSE;
         }
