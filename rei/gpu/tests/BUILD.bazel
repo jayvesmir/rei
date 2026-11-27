@@ -36,6 +36,7 @@ REFLECTOR_REGRESSIONS = [
 ]
 
 SLANG = [
+    "gather",
     "kernels",
     "lanes",
     "numbered",
@@ -45,6 +46,7 @@ SLANG = [
 PIPELINES = {
     "doubling": [":double.comp.spv"],
     "fill": [":fill.comp.spv"],
+    "gather": [":gather.spv"],
     "increment": [":increment.comp.spv"],
     "lanes": [":lanes.spv"],
     "mark": [":post.vert.spv", ":mark.frag.spv"],

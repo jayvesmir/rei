@@ -55,10 +55,20 @@ namespace {
         auto operator==(const constant& other) const noexcept -> bool = default;
     };
 
+    struct structure {
+        std::string name;
+        std::vector<constant> members;
+        std::uint32_t size{};
+        std::uint32_t alignment{1};
+
+        auto operator==(const structure& other) const noexcept -> bool = default;
+    };
+
     struct pipeline_shaders {
         std::vector<std::vector<std::uint32_t>> modules;
         std::vector<entry> entries;
         std::map<std::uint32_t, std::map<std::uint32_t, binding>> sets;
+        std::vector<structure> structures;
         std::optional<std::vector<constant>> constants;
         std::vector<std::string> vertex_formats;
         std::array<std::uint32_t, 3> local_size{};
@@ -83,78 +93,157 @@ namespace {
         return std::string{name};
     }
 
-    auto mirror(const SpvReflectBlockVariable& member) -> std::expected<constant, std::string> {
+    constexpr auto reserved = std::array<std::string_view, 10>{
+        "compute", "constants", "fragment",       "fragment_spirv", "local_size",
+        "spirv",   "vertex",    "vertex_formats", "vertex_input",   "vertex_spirv",
+    };
+
+    auto struct_name(const SpvReflectTypeDescription& type, std::string_view what)
+        -> std::expected<std::string, std::string> {
+        auto name = member_name(type.type_name != nullptr ? type.type_name : "", what);
+        if (!name) {
+            return name;
+        }
+
+        for (const std::string_view layout : {"_std140", "_std430"}) {
+            if (name->ends_with(layout) && name->size() > layout.size()) {
+                name->resize(name->size() - layout.size());
+            }
+        }
+        if (std::ranges::contains(reserved, *name) || name->starts_with("set_")) {
+            return std::unexpected(std::format("{} is a struct named '{}', which the generated header uses "
+                                               "itself; rename it in the shader",
+                                               what, *name));
+        }
+
+        return name;
+    }
+
+    auto lay_out(std::vector<constant> members) -> structure {
+        std::ranges::sort(members, {}, &constant::offset);
+
+        auto laid_out = structure{.members = std::move(members)};
+        auto end = std::uint32_t{};
+        for (const auto& member : laid_out.members) {
+            end = member.offset + member.size;
+            laid_out.alignment = std::max(laid_out.alignment, member.alignment);
+        }
+        laid_out.size =
+            ((end + 3) / 4 * 4 + laid_out.alignment - 1) / laid_out.alignment * laid_out.alignment;
+
+        return laid_out;
+    }
+
+    auto add(std::vector<structure>& structures, structure added, std::string_view what)
+        -> std::expected<void, std::string> {
+        const auto same = std::ranges::find(structures, added.name, &structure::name);
+        if (same != structures.end() && *same != added) {
+            return std::unexpected(std::format("{}: two structs are named '{}' and are laid out differently; "
+                                               "rename one in the shader",
+                                               what, added.name));
+        }
+        if (same == structures.end()) {
+            structures.push_back(std::move(added));
+        }
+
+        return {};
+    }
+
+    auto mirror(const SpvReflectBlockVariable& member, std::string_view what,
+                std::vector<structure>& structures) -> std::expected<constant, std::string> {
         const auto& type = *member.type_description;
         const auto& numeric = member.numeric;
         const auto reflected = std::string_view{member.name != nullptr ? member.name : ""};
+        const auto is_struct = (type.type_flags & SPV_REFLECT_TYPE_FLAG_STRUCT) != 0;
+        const auto is_array = (type.type_flags & SPV_REFLECT_TYPE_FLAG_ARRAY) != 0;
 
-        auto name = member_name(reflected, "a push constant");
+        auto name = member_name(reflected, what);
         if (!name) {
             return std::unexpected(std::move(name).error());
         }
-        if ((type.type_flags & SPV_REFLECT_TYPE_FLAG_STRUCT) != 0 && member.member_count == 1 &&
-            member.members[0].offset == 0) {
-            return mirror(member.members[0]).transform([&](constant wrapped) -> constant {
+        if (is_struct && !is_array && member.member_count == 1 && member.members[0].offset == 0) {
+            return mirror(member.members[0], what, structures).transform([&](constant wrapped) -> constant {
                 wrapped.name = std::move(*name);
                 wrapped.offset = member.offset;
 
                 return wrapped;
             });
         }
-        if ((type.type_flags & SPV_REFLECT_TYPE_FLAG_STRUCT) != 0) {
-            return std::unexpected(std::format("push constant '{}' is a struct; only scalars, vectors, "
-                                               "matrices and arrays of them are mirrored",
-                                               reflected));
-        }
 
-        const auto width = numeric.scalar.width / 8;
-        auto scalar = std::string{};
-        if ((type.type_flags & SPV_REFLECT_TYPE_FLAG_FLOAT) != 0 && (width == 4 || width == 8)) {
-            scalar = width == 4 ? "float" : "double";
-        } else if ((type.type_flags & SPV_REFLECT_TYPE_FLAG_INT) != 0 && std::has_single_bit(width) &&
-                   width <= 8) {
-            scalar = std::format("std::{}int{}_t", numeric.scalar.signedness != 0 ? "" : "u", width * 8);
-        } else if ((type.type_flags & SPV_REFLECT_TYPE_FLAG_BOOL) != 0) {
-            scalar = "std::uint32_t";
-        } else {
-            return std::unexpected(
-                std::format("push constant '{}' has a type with no C++ mirror", reflected));
-        }
+        auto mirrored = constant{.name = std::move(*name), .offset = member.offset};
+        if (is_struct) {
+            auto members = std::vector<constant>{};
+            for (const auto& inner : std::span{member.members, member.member_count}) {
+                auto mirrored_inner = mirror(inner, what, structures);
+                if (!mirrored_inner) {
+                    return mirrored_inner;
+                }
 
-        auto mirrored = constant{
-            .name = std::move(*name),
-            .type = scalar,
-            .offset = member.offset,
-            .size = width,
-            .alignment = width,
-        };
-        if ((type.type_flags & SPV_REFLECT_TYPE_FLAG_MATRIX) != 0) {
-            const auto row_major = (member.decoration_flags & SPV_REFLECT_DECORATION_ROW_MAJOR) != 0;
-            const auto vectors = row_major ? numeric.matrix.row_count : numeric.matrix.column_count;
-            const auto components = row_major ? numeric.matrix.column_count : numeric.matrix.row_count;
-
-            mirrored.size = vectors * numeric.matrix.stride;
-            mirrored.type = numeric.matrix.stride == components * width
-                                ? std::format("std::array<{}, {}>", scalar, vectors * components)
-                                : std::format("std::array<std::array<{}, {}>, {}>", scalar,
-                                              numeric.matrix.stride / width, vectors);
-        } else if ((type.type_flags & SPV_REFLECT_TYPE_FLAG_VECTOR) != 0) {
-            mirrored.size = numeric.vector.component_count * width;
-            mirrored.type = std::format("std::array<{}, {}>", scalar, numeric.vector.component_count);
-        }
-
-        if ((type.type_flags & SPV_REFLECT_TYPE_FLAG_ARRAY) != 0) {
-            if (member.array.dims_count != 1 || member.array.dims[0] == 0 ||
-                member.array.stride != mirrored.size) {
-                return std::unexpected(
-                    std::format("push constant '{}' is an array with {} dimensions and {} bytes per element "
-                                "of {}; only arrays "
-                                "of one dimension without padding between elements are mirrored",
-                                reflected, member.array.dims_count, member.array.stride, mirrored.size));
+                members.push_back(std::move(*mirrored_inner));
             }
 
-            mirrored.type = std::format("std::array<{}, {}>", mirrored.type, member.array.dims[0]);
-            mirrored.size *= member.array.dims[0];
+            auto nested = struct_name(type, std::format("{} '{}'", what, reflected));
+            if (!nested) {
+                return std::unexpected(std::move(nested).error());
+            }
+
+            auto laid_out = lay_out(std::move(members));
+            laid_out.name = std::move(*nested);
+            mirrored.type = laid_out.name;
+            mirrored.size = laid_out.size;
+            mirrored.alignment = laid_out.alignment;
+            if (const auto added = add(structures, std::move(laid_out), what); !added) {
+                return std::unexpected(added.error());
+            }
+        } else {
+            const auto width = numeric.scalar.width / 8;
+            if ((type.type_flags & SPV_REFLECT_TYPE_FLAG_FLOAT) != 0 && (width == 4 || width == 8)) {
+                mirrored.type = width == 4 ? "float" : "double";
+            } else if ((type.type_flags & SPV_REFLECT_TYPE_FLAG_INT) != 0 && std::has_single_bit(width) &&
+                       width <= 8) {
+                mirrored.type =
+                    std::format("std::{}int{}_t", numeric.scalar.signedness != 0 ? "" : "u", width * 8);
+            } else if ((type.type_flags & SPV_REFLECT_TYPE_FLAG_BOOL) != 0) {
+                mirrored.type = "std::uint32_t";
+            } else {
+                return std::unexpected(std::format("{} '{}' has a type with no C++ mirror", what, reflected));
+            }
+
+            const auto scalar = mirrored.type;
+            mirrored.size = width;
+            mirrored.alignment = width;
+            if ((type.type_flags & SPV_REFLECT_TYPE_FLAG_MATRIX) != 0) {
+                const auto row_major = (member.decoration_flags & SPV_REFLECT_DECORATION_ROW_MAJOR) != 0;
+                const auto vectors = row_major ? numeric.matrix.row_count : numeric.matrix.column_count;
+                const auto components = row_major ? numeric.matrix.column_count : numeric.matrix.row_count;
+
+                mirrored.size = vectors * numeric.matrix.stride;
+                mirrored.type = numeric.matrix.stride == components * width
+                                    ? std::format("std::array<{}, {}>", scalar, vectors * components)
+                                    : std::format("std::array<std::array<{}, {}>, {}>", scalar,
+                                                  numeric.matrix.stride / width, vectors);
+            } else if ((type.type_flags & SPV_REFLECT_TYPE_FLAG_VECTOR) != 0) {
+                mirrored.size = numeric.vector.component_count * width;
+                mirrored.type = std::format("std::array<{}, {}>", scalar, numeric.vector.component_count);
+            }
+        }
+
+        if (is_array) {
+            const auto stride = member.array.stride;
+            if (member.array.dims_count != 1 || member.array.dims[0] == 0 || stride < mirrored.size ||
+                stride % mirrored.alignment != 0) {
+                return std::unexpected(
+                    std::format("{} '{}' is an array with {} dimensions and {} bytes per "
+                                "element of {}; only arrays of one dimension whose elements "
+                                "are at least as long as their values are mirrored",
+                                what, reflected, member.array.dims_count, stride, mirrored.size));
+            }
+
+            const auto element = stride == mirrored.size
+                                     ? mirrored.type
+                                     : std::format("vk::padded<{}, {}>", mirrored.type, stride);
+            mirrored.type = std::format("std::array<{}, {}>", element, member.array.dims[0]);
+            mirrored.size = stride * member.array.dims[0];
         }
 
         return mirrored;
@@ -297,6 +386,32 @@ namespace {
                         where, *name));
                 }
 
+                if (reflected_binding.descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
+                    const auto& block = reflected_binding.block;
+                    const auto what = std::format("{}: uniform block '{}'", where, *name);
+                    const auto member_what = std::format("{}: in uniform block '{}', member", where, *name);
+                    auto members = std::vector<constant>{};
+                    for (const auto& member : std::span{block.members, block.member_count}) {
+                        auto mirrored = mirror(member, member_what, program.structures);
+                        if (!mirrored) {
+                            return std::unexpected(std::move(mirrored).error());
+                        }
+
+                        members.push_back(std::move(*mirrored));
+                    }
+
+                    auto laid_out = lay_out(std::move(members));
+                    auto named = struct_name(*reflected_binding.type_description, what);
+                    if (!named) {
+                        return std::unexpected(std::move(named).error());
+                    }
+
+                    laid_out.name = std::move(*named);
+                    if (const auto added = add(program.structures, std::move(laid_out), what); !added) {
+                        return std::unexpected(added.error());
+                    }
+                }
+
                 auto& merged = program.sets[reflected_binding.set][reflected_binding.binding];
                 if (merged.stages.empty()) {
                     merged = {.kind = kind, .count = reflected_binding.count, .name = *name, .stages = {}};
@@ -319,7 +434,7 @@ namespace {
 
                 auto constants = std::vector<constant>{};
                 for (const auto& member : std::span{block.members, block.member_count}) {
-                    auto mirrored = mirror(member);
+                    auto mirrored = mirror(member, "push constant", program.structures);
                     if (!mirrored) {
                         return std::unexpected(std::format("{}: {}", file, mirrored.error()));
                     }
@@ -451,9 +566,8 @@ namespace {
             line("    }}");
         }
 
-        if (program.constants) {
+        const auto mirror_struct = [&](std::string_view name, const std::vector<constant>& members) -> void {
             auto end = std::uint32_t{};
-            auto alignment = std::uint32_t{1};
             auto paddings = std::uint32_t{};
             const auto pad = [&](std::uint32_t until) -> void {
                 if (until > end) {
@@ -462,21 +576,26 @@ namespace {
                 }
             };
 
-            line("\n    struct constants {{");
-            for (const auto& member : *program.constants) {
+            line("\n    struct {} {{", name);
+            for (const auto& member : members) {
                 pad(member.offset);
                 line("        {} {};", member.type, member.name);
                 end = member.offset + member.size;
-                alignment = std::max(alignment, member.alignment);
             }
             pad((end + 3) / 4 * 4);
             line("    }};\n");
 
-            line("    static_assert(sizeof(constants) == {});",
-                 (end + alignment - 1) / alignment * alignment);
-            for (const auto& member : *program.constants) {
-                line("    static_assert(offsetof(constants, {}) == {});", member.name, member.offset);
+            line("    static_assert(sizeof({}) == {});", name, lay_out(members).size);
+            for (const auto& member : members) {
+                line("    static_assert(offsetof({}, {}) == {});", name, member.name, member.offset);
             }
+        };
+
+        for (const auto& mirrored : program.structures) {
+            mirror_struct(mirrored.name, mirrored.members);
+        }
+        if (program.constants) {
+            mirror_struct("constants", *program.constants);
         }
 
         for (const auto& [set, bindings] : program.sets) {

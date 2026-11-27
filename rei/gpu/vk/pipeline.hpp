@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <memory>
@@ -22,6 +23,13 @@ namespace rei::gpu::vk {
         std::uint32_t location;
         vk::format format;
         std::uint32_t offset;
+    };
+
+    template <typename ValueType, std::size_t stride>
+        requires(stride > sizeof(ValueType) && stride % alignof(ValueType) == 0)
+    struct padded {
+        ValueType value{};
+        std::array<std::byte, stride - sizeof(ValueType)> padding{};
     };
 
     struct vertex_binding {

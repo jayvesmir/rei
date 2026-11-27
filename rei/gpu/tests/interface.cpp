@@ -8,6 +8,7 @@
 #include "gtest/gtest.h"
 
 #include "rei/gpu/tests/shaders/fill.hpp"
+#include "rei/gpu/tests/shaders/gather.hpp"
 #include "rei/gpu/tests/shaders/post.hpp"
 #include "rei/gpu/tests/shaders/scale.hpp"
 #include "rei/gpu/tests/shaders/shift.hpp"
@@ -287,5 +288,56 @@ namespace rei::gpu::tests {
                                     "kernels: end: barrier memory: compute writes → later work",
                                     "submit kernels: ticket 1",
                                 }));
+    }
+
+    TEST_F(vulkan, a_uniform_block_with_nested_structs_and_padded_arrays_reads_what_its_mirror_wrote) {
+        const auto queue = device().queue();
+        auto scene = vk::buffer::make(device(), {
+                                                    .size = sizeof(shaders::gather::scene_data),
+                                                    .usage = vk::buffer_usage::uniform_buffer,
+                                                    .host = vk::host_access::write,
+                                                    .name = "scene",
+                                                });
+        const auto results = vk::buffer::make(device(), {
+                                                            .size = 6 * sizeof(float),
+                                                            .usage = vk::buffer_usage::storage_buffer,
+                                                            .host = vk::host_access::read_write,
+                                                            .name = "results",
+                                                        });
+        ASSERT_TRUE(scene) << scene.error();
+        ASSERT_TRUE(results) << results.error();
+
+        const auto written = shaders::gather::scene_data{
+            .lights = {{
+                {.value = {.direction = {0.25f, 0.0f, 0.0f}, .intensity = 1.0f, .color = {1.0f, 1.0f, 1.0f}}},
+                {.value = {.direction = {0.0f, 1.0f, 0.0f}, .intensity = 2.5f, .color = {0.0f, 0.0f, 0.75f}}},
+            }},
+            .weights = {{{.value = 0.5f}, {.value = 1.5f}, {.value = 3.5f}}},
+            .tint = {0.0f, 4.5f, 0.0f},
+            .count = 7,
+        };
+        ASSERT_TRUE(scene->write(std::as_bytes(std::span{&written, 1})));
+
+        const auto shader = shaders::gather::compute();
+        ASSERT_TRUE(shader) << shader.error();
+        const auto layout =
+            vk::set_layout::make(device(), {.bindings = shaders::gather::set_0::bindings(), .pushed = true});
+        ASSERT_TRUE(layout) << layout.error();
+        const auto pipeline = vk::compute_pipeline::make(device(), {.shader = *shader, .sets = {*layout}});
+        ASSERT_TRUE(pipeline) << pipeline.error();
+
+        auto commands = queue.record("gather");
+        {
+            auto pass = commands.compute();
+            pass.bind(*pipeline);
+            pass.push_descriptors(shaders::gather::set_0{.scene = *scene, .results = *results});
+            pass.dispatch(1);
+        }
+
+        const auto ticket = queue.submit(std::move(commands));
+        ASSERT_TRUE(ticket) << ticket.error();
+        ASSERT_TRUE(device().wait(*ticket));
+
+        EXPECT_EQ(read<float>(*results), (std::vector<float>{0.25f, 2.5f, 0.75f, 3.5f, 4.5f, 7.0f}));
     }
 } // namespace rei::gpu::tests
