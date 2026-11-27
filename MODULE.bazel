@@ -11,6 +11,7 @@ bazel_dep(name = "highway", version = "1.4.0.bcr.1")
 bazel_dep(name = "vulkan_headers", version = "1.4.349")
 bazel_dep(name = "vulkan_memory_allocator", version = "3.3.0")
 bazel_dep(name = "spirv_tools", version = "2026.3")
+bazel_dep(name = "spirv_headers", version = "1.4.357.0")
 
 bazel_dep(name = "googletest", version = "1.18.0", dev_dependency = True)
 bazel_dep(name = "nlohmann_json", version = "3.12.0.bcr.2", dev_dependency = True)
