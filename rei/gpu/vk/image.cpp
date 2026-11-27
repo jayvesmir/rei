@@ -368,8 +368,11 @@ namespace rei::gpu::vk {
 
         if (home != vk::access::manual) {
             const auto lock = std::scoped_lock{context.mutex};
-            std::erase_if(context.new_images,
-                          [](const std::weak_ptr<image::state>& image) -> bool { return image.expired(); });
+            if (context.new_images.size() == context.new_images.capacity()) {
+                std::erase_if(context.new_images, [](const std::weak_ptr<image::state>& image) -> bool {
+                    return image.expired();
+                });
+            }
             context.new_images.push_back(state);
         }
 
