@@ -123,6 +123,10 @@ namespace rei::gpu::vk {
         auto push_descriptors(std::uint32_t set, std::initializer_list<vk::descriptor> descriptors) -> void;
         auto push_descriptors(std::uint32_t set, std::span<const vk::descriptor> descriptors) -> void;
 
+        template <vk::descriptor_block BlockType> auto push_descriptors(const BlockType& block) -> void {
+            push_descriptors(BlockType::set, std::span<const vk::descriptor>{block.descriptors()});
+        }
+
         template <typename ValueType>
             requires std::is_trivially_copyable_v<ValueType>
         auto push_constants(const ValueType& value) -> void {
@@ -165,6 +169,10 @@ namespace rei::gpu::vk {
         auto bind(std::uint32_t set, const vk::descriptor_set& descriptors) -> void;
         auto push_descriptors(std::uint32_t set, std::initializer_list<vk::descriptor> descriptors) -> void;
         auto push_descriptors(std::uint32_t set, std::span<const vk::descriptor> descriptors) -> void;
+
+        template <vk::descriptor_block BlockType> auto push_descriptors(const BlockType& block) -> void {
+            push_descriptors(BlockType::set, std::span<const vk::descriptor>{block.descriptors()});
+        }
 
         template <typename ValueType>
             requires std::is_trivially_copyable_v<ValueType>

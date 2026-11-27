@@ -1,5 +1,6 @@
 #pragma once
 
+#include <concepts>
 #include <cstdint>
 #include <expected>
 #include <functional>
@@ -54,6 +55,21 @@ namespace rei::gpu::vk {
         [[nodiscard]] auto handle() const noexcept -> VkDescriptorSetLayout;
     };
 
+    struct buffer_range {
+        const vk::buffer& buffer;
+        std::uint64_t offset{};
+        std::optional<std::uint64_t> size{};
+
+        buffer_range(const vk::buffer& buffer, std::uint64_t offset = 0,
+                     std::optional<std::uint64_t> size = {}) noexcept
+            : buffer(buffer), offset(offset), size(size) {}
+    };
+
+    struct image_sampler {
+        const vk::image_view& view;
+        const vk::sampler& sampler;
+    };
+
     class descriptor {
       private:
         friend class descriptor_set;
@@ -75,11 +91,17 @@ namespace rei::gpu::vk {
                    std::uint64_t size) noexcept
             : m_binding(binding), m_buffer(buffer), m_offset(offset), m_size(size) {}
 
+        descriptor(std::uint32_t binding, const vk::buffer_range& range) noexcept
+            : m_binding(binding), m_buffer(range.buffer), m_offset(range.offset), m_size(range.size) {}
+
         descriptor(std::uint32_t binding, const vk::image_view& view) noexcept
             : m_binding(binding), m_view(view) {}
 
         descriptor(std::uint32_t binding, const vk::image_view& view, const vk::sampler& sampler) noexcept
             : m_binding(binding), m_view(view), m_sampler(sampler) {}
+
+        descriptor(std::uint32_t binding, const vk::image_sampler& sampled) noexcept
+            : m_binding(binding), m_view(sampled.view), m_sampler(sampled.sampler) {}
 
         descriptor(std::uint32_t binding, const vk::sampler& sampler) noexcept
             : m_binding(binding), m_sampler(sampler) {}
@@ -90,6 +112,12 @@ namespace rei::gpu::vk {
 
             return copy;
         }
+    };
+
+    template <typename BlockType>
+    concept descriptor_block = requires(const BlockType& block) {
+        { BlockType::set } -> std::convertible_to<std::uint32_t>;
+        { block.descriptors() } -> std::convertible_to<std::span<const vk::descriptor>>;
     };
 
     struct descriptor_set_options {
@@ -118,6 +146,11 @@ namespace rei::gpu::vk {
 
         auto write(std::initializer_list<vk::descriptor> descriptors) -> std::expected<void, rei::error>;
         auto write(std::span<const vk::descriptor> descriptors) -> std::expected<void, rei::error>;
+
+        template <vk::descriptor_block BlockType>
+        auto write(const BlockType& block) -> std::expected<void, rei::error> {
+            return write(std::span<const vk::descriptor>{block.descriptors()});
+        }
 
         [[nodiscard]] auto handle() const noexcept -> VkDescriptorSet;
     };
