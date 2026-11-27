@@ -8,6 +8,7 @@ cc_test(
     srcs = [
         "device.cpp",
         "support.hpp",
+        "transfer.cpp",
         "vocabulary.cpp",
     ],
 
