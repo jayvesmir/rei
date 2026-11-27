@@ -158,7 +158,7 @@ namespace rei::gpu::vk {
 
         explicit compute_pass(vk::commands& commands) noexcept;
 
-        auto _dispatching(std::string_view call) -> bool;
+        auto _dispatching(std::string_view call, bool indirect) -> bool;
         auto _push_constants(std::span<const std::byte> data) -> void;
 
       public:

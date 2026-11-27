@@ -526,6 +526,7 @@ namespace rei::gpu::vk {
         struct compute_scope : state::scope {
             bool concurrent{};
             bool last_wrote{};
+            bool hidden_from_indirect{};
         };
 
         struct render_target {

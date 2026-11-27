@@ -126,6 +126,57 @@ namespace rei::gpu::tests {
             }));
     }
 
+    TEST_F(vulkan, an_indirect_dispatch_waits_for_the_dispatch_in_its_pass_that_wrote_its_arguments) {
+        const auto queue = device().queue();
+        const auto values = storage(device(), "values", 21.0f);
+        auto groups = vk::buffer::make(
+            device(), {
+                          .size = 256 * sizeof(std::uint32_t),
+                          .usage = vk::buffer_usage::storage_buffer | vk::buffer_usage::indirect_buffer,
+                          .host = vk::host_access::write,
+                          .name = "groups",
+                      });
+        ASSERT_TRUE(values) << values.error();
+        ASSERT_TRUE(groups) << groups.error();
+        const auto none = std::vector<std::uint32_t>(256, 0);
+        ASSERT_TRUE(groups->write(std::as_bytes(std::span{none})));
+
+        const auto shader = shaders::doubling::compute();
+        ASSERT_TRUE(shader) << shader.error();
+        const auto layout = vk::set_layout::make(
+            device(), {
+                          .bindings = {{.binding = 0, .type = vk::descriptor_type::storage_buffer}},
+                          .pushed = true,
+                      });
+        ASSERT_TRUE(layout) << layout.error();
+        const auto pipeline = vk::compute_pipeline::make(device(), {.shader = *shader, .sets = {*layout}});
+        ASSERT_TRUE(pipeline) << pipeline.error();
+
+        auto commands = queue.record("driven");
+        {
+            auto pass = commands.compute();
+            pass.bind(*pipeline);
+            pass.push_descriptors(0, {{0, *groups}});
+            pass.dispatch(256 / 64);
+            pass.push_descriptors(0, {{0, *values}});
+            pass.dispatch(256 / 64);
+            pass.dispatch_indirect(*groups);
+        }
+
+        const auto ticket = queue.submit(std::move(commands));
+        ASSERT_TRUE(ticket) << ticket.error();
+        ASSERT_TRUE(device().wait(*ticket));
+
+        EXPECT_EQ(read<float>(*values), std::vector<float>(256, 42.0f));
+        EXPECT_EQ(take_trace(), (std::vector<std::string>{
+                                    "driven: compute: barrier memory: earlier work → compute",
+                                    "driven: compute: barrier memory: compute writes → compute",
+                                    "driven: compute: barrier memory: compute writes → indirect compute",
+                                    "driven: end: barrier memory: compute writes → later work",
+                                    "submit driven: ticket 1",
+                                }));
+    }
+
     TEST_F(vulkan, dispatches_that_depend_on_each_other_are_ordered_unless_the_pass_is_concurrent) {
         const auto queue = device().queue();
         const auto first = storage(device(), "first", 1.0f);

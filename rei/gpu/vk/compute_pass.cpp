@@ -21,7 +21,7 @@ namespace rei::gpu::vk {
         end();
     }
 
-    auto compute_pass::_dispatching(std::string_view call) -> bool {
+    auto compute_pass::_dispatching(std::string_view call, bool indirect) -> bool {
         auto& self = *m_commands.m_state;
 
         if (!self.inside(m_open, call, "compute pass") || !self.readable(*self.compute, call)) {
@@ -30,18 +30,24 @@ namespace rei::gpu::vk {
 
         auto& scope = *self.compute;
         const auto writes = scope.pipeline->writes;
+        const auto arguments_hidden = indirect && scope.hidden_from_indirect;
 
         if (writes && !scope.wrote) {
             self.add(scope.workflow,
                      {.target = "memory", .from = detail::earlier_work, .to = detail::compute_work});
-        } else if (!scope.concurrent && (writes || scope.last_wrote)) {
+        } else if (!scope.concurrent && (writes || scope.last_wrote || arguments_hidden)) {
             self.add(scope.workflow,
-                     {.target = "memory", .from = detail::compute_writes, .to = detail::compute_work});
+                     {
+                         .target = "memory",
+                         .from = detail::compute_writes,
+                         .to = arguments_hidden ? detail::indirect_compute_work : detail::compute_work,
+                     });
         }
         self.flush(scope.workflow);
 
         scope.wrote = scope.wrote || writes;
         scope.last_wrote = writes;
+        scope.hidden_from_indirect = writes || (scope.hidden_from_indirect && !indirect);
 
         return true;
     }
@@ -95,7 +101,7 @@ namespace rei::gpu::vk {
 
     auto compute_pass::dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z)
         -> void {
-        if (!_dispatching("dispatch")) {
+        if (!_dispatching("dispatch", false)) {
             return;
         }
 
@@ -123,7 +129,7 @@ namespace rei::gpu::vk {
             return;
         }
 
-        if (!_dispatching("dispatch_indirect")) {
+        if (!_dispatching("dispatch_indirect", true)) {
             return;
         }
 
