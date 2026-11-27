@@ -22,6 +22,12 @@ GLSL = {
     "double.comp": "compute",
     "fill.comp": "compute",
     "increment.comp": "compute",
+    "mark.frag": "fragment",
+    "post.frag": "fragment",
+    "post.vert": "vertex",
+    "scene.vert": "vertex",
+    "triangle.frag": "fragment",
+    "triangle.vert": "vertex",
 }
 
 REFLECTOR_REGRESSIONS = [
@@ -33,6 +39,10 @@ PIPELINES = {
     "doubling": [":double.comp.spv"],
     "fill": [":fill.comp.spv"],
     "increment": [":increment.comp.spv"],
+    "mark": [":post.vert.spv", ":mark.frag.spv"],
+    "post": [":post.vert.spv", ":post.frag.spv"],
+    "scene": [":scene.vert.spv", ":triangle.frag.spv"],
+    "triangle": [":triangle.vert.spv", ":triangle.frag.spv"],
 }
 
 [
@@ -97,6 +107,7 @@ cc_test(
         "canary.cpp",
         "compute.cpp",
         "device.cpp",
+        "render.cpp",
         "support.hpp",
         "transfer.cpp",
         "vocabulary.cpp",
