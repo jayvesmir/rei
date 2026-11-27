@@ -107,6 +107,7 @@ cc_test(
         "canary.cpp",
         "compute.cpp",
         "device.cpp",
+        "present.cpp",
         "render.cpp",
         "support.hpp",
         "transfer.cpp",
