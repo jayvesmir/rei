@@ -199,6 +199,8 @@ namespace rei::gpu::vk {
         device->retire({
             .label = detail::label(name, "image"),
             .image = handle,
+            .range = range(),
+            .pending_home = home == vk::access::manual || moved_home ? std::nullopt : std::optional{home},
             .allocation = allocation,
             .memory = memory,
         });

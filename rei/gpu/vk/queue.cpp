@@ -206,8 +206,32 @@ namespace rei::gpu::vk {
             }
         }
 
+        auto first_uses =
+            fresh | std::views::transform([](const std::shared_ptr<image::state>& image) -> detail::barrier {
+                return {
+                    .target = detail::label(image->name, "image"),
+                    .image = image->handle,
+                    .range = image->range(),
+                    .to = detail::use_of(image->home),
+                };
+            }) |
+            std::ranges::to<std::vector>();
+        {
+            const auto device_lock = std::scoped_lock{device.mutex};
+            for (const auto& item : device.retired) {
+                if (item.pending_home && item.serial >= recorded.serial) {
+                    first_uses.push_back({
+                        .target = item.label,
+                        .image = item.image,
+                        .range = item.range,
+                        .to = detail::use_of(*item.pending_home),
+                    });
+                }
+            }
+        }
+
         auto buffers = std::vector<VkCommandBufferSubmitInfo>{};
-        if (!fresh.empty()) {
+        if (!first_uses.empty()) {
             const auto prefix = device.take_pool();
             if (!prefix) {
                 return abandon(prefix.error());
@@ -215,22 +239,19 @@ namespace rei::gpu::vk {
             items.push_back({.pool = *prefix});
 
             const auto barriers =
-                fresh |
-                std::views::transform(
-                    [](const std::shared_ptr<image::state>& image) -> VkImageMemoryBarrier2 {
-                        const auto home = detail::use_of(image->home);
-                        return {
-                            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                            .dstStageMask = home.stages,
-                            .dstAccessMask = home.access,
-                            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-                            .newLayout = home.layout,
-                            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                            .image = image->handle,
-                            .subresourceRange = image->range(),
-                        };
-                    }) |
+                first_uses | std::views::transform([](const detail::barrier& first) -> VkImageMemoryBarrier2 {
+                    return {
+                        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                        .dstStageMask = first.to.stages,
+                        .dstAccessMask = first.to.access,
+                        .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                        .newLayout = first.to.layout,
+                        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                        .image = first.image,
+                        .subresourceRange = first.range,
+                    };
+                }) |
                 std::ranges::to<std::vector>();
             const auto dependency = VkDependencyInfo{
                 .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
@@ -281,23 +302,35 @@ namespace rei::gpu::vk {
             slot.signaled++;
         }
 
+        for (const auto& image : fresh) {
+            image->moved_home = true;
+        }
+        if (first_uses.size() > fresh.size()) {
+            const auto device_lock = std::scoped_lock{device.mutex};
+            for (auto& item : device.retired) {
+                if (item.pending_home &&
+                    std::ranges::contains(first_uses, item.image, &detail::barrier::image)) {
+                    item.pending_home.reset();
+                }
+            }
+        }
+
         queue.submitted = value;
         device.end_commands(recorded.serial, value, std::move(items));
         lock.unlock();
 
         if (device.tracing) {
-            const auto first_uses =
-                fresh | std::views::transform([](const std::shared_ptr<image::state>& image) -> std::string {
-                    return std::format("{} undefined → {}", detail::label(image->name, "image"),
-                                       detail::use_of(image->home).name);
-                }) |
-                std::views::join_with(std::string_view{", "}) | std::ranges::to<std::string>();
+            const auto moved = first_uses |
+                               std::views::transform([](const detail::barrier& first) -> std::string {
+                                   return std::format("{} undefined → {}", first.target, first.to.name);
+                               }) |
+                               std::views::join_with(std::string_view{", "}) | std::ranges::to<std::string>();
 
             const auto acquired =
                 awaited | std::views::join_with(std::string_view{", "}) | std::ranges::to<std::string>();
 
             device.trace("submit {}: {}{}ticket {}", detail::label(recorded.name, "commands"),
-                         first_uses.empty() ? "" : std::format("first use: {}; ", first_uses),
+                         moved.empty() ? "" : std::format("first use: {}; ", moved),
                          acquired.empty() ? "" : std::format("waits for {}; ", acquired), value);
         }
 

@@ -166,6 +166,8 @@ namespace rei::gpu::vk {
             std::string label;
             VkBuffer buffer{};
             VkImage image{};
+            VkImageSubresourceRange range{};
+            std::optional<vk::access> pending_home;
             VkImageView view{};
             VkSampler sampler{};
             VkDescriptorSetLayout set_layout{};
@@ -361,6 +363,7 @@ namespace rei::gpu::vk {
         std::string name;
         std::weak_ptr<vk::swapchain::generation> swapchain;
         std::uint32_t swapchain_index{};
+        bool moved_home{};
 
         ~state();
 

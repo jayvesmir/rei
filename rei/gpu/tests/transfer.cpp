@@ -253,6 +253,44 @@ namespace rei::gpu::tests {
         ASSERT_TRUE(device().wait_idle());
     }
 
+    TEST_F(vulkan, an_image_destroyed_before_the_submit_of_its_first_use_is_still_moved_home_first) {
+        const auto queue = device().queue();
+        const auto readback = vk::buffer::make(device(), {
+                                                             .size = 16 * 16 * sizeof(pixel),
+                                                             .usage = vk::buffer_usage::transfer_dst,
+                                                             .host = vk::host_access::read_write,
+                                                             .name = "readback",
+                                                         });
+        ASSERT_TRUE(readback) << readback.error();
+
+        auto commands = queue.record("short-lived");
+        {
+            const auto scratch = vk::image::make(
+                device(), {
+                              .format = vk::format::r8g8b8a8_unorm,
+                              .extent = {.width = 16, .height = 16},
+                              .usage = vk::image_usage::sampled | vk::image_usage::transfer_src,
+                              .name = "scratch",
+                          });
+            ASSERT_TRUE(scratch) << scratch.error();
+            commands.copy(*scratch, *readback);
+        }
+
+        const auto ticket = queue.submit(std::move(commands));
+        ASSERT_TRUE(ticket) << ticket.error();
+        ASSERT_TRUE(device().wait(*ticket));
+
+        EXPECT_EQ(take_trace(),
+                  (std::vector<std::string>{
+                      "short-lived: copy scratch → readback: barrier scratch: shader_read → transfer_src; "
+                      "readback: home → transfer_dst",
+                      "short-lived: end: barrier scratch: transfer_src → shader_read; readback: transfer_dst → "
+                      "home",
+                      "submit short-lived: first use: scratch undefined → shader_read; ticket 1",
+                      "collect: freed scratch",
+                  }));
+    }
+
     TEST_F(vulkan, a_recording_failure_surfaces_at_submit_with_names_and_nothing_recorded_runs) {
         const auto queue = device().queue();
         const auto zeros = std::vector<std::byte>(16, std::byte{0});
