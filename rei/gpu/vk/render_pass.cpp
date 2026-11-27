@@ -56,7 +56,7 @@ namespace rei::gpu::vk {
 
             const auto coloring = usage == vk::image_usage::color_attachment;
             const auto format = detail::info_of(image->format);
-            const auto wanted = resolving ? std::optional{1U} : samples;
+            const auto wanted = resolving ? std::optional<std::uint32_t>{1} : samples;
 
             if (!vk::has(image->usage, usage)) {
                 self.fail(vk::error_code::invalid_argument,
@@ -129,7 +129,7 @@ namespace rei::gpu::vk {
                 continue;
             }
 
-            const auto& resolve = target.resolve->target;
+            const auto& resolve = target.resolve->get();
             const auto resolved = admit(resolve, vk::image_usage::color_attachment, true);
             if (!resolved) {
                 return vk::render_pass{*this};

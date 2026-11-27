@@ -55,9 +55,7 @@ namespace rei::gpu::vk {
         std::uint64_t buffer_offset{};
     };
 
-    struct resolve_target {
-        const vk::image_view& target;
-    };
+    using resolve_target = std::reference_wrapper<const vk::image_view>;
 
     struct color_target {
         const vk::image_view& target;
