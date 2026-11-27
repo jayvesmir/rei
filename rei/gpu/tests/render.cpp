@@ -961,5 +961,8 @@ namespace rei::gpu::tests {
         auto pass = unfinished.render({.color = {{.target = *target}}, .name = "open"});
         EXPECT_TRUE(has_error(queue.submit(std::move(unfinished)), vk::error_code::invalid_argument,
                               "submit of unfinished: render pass 'open' is still open"));
+        pass.viewport({.width = 8, .height = 8});
+        pass.draw({.vertices = 3});
+        pass.end();
     }
 } // namespace rei::gpu::tests

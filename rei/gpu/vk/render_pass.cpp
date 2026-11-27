@@ -262,10 +262,17 @@ namespace rei::gpu::vk {
         end();
     }
 
-    auto render_pass::_drawing(std::string_view call) -> bool {
-        auto& self = *m_commands.m_state;
+    auto render_pass::_open(std::string_view call) -> bool {
+        return m_commands.m_state && m_commands.m_state->inside(m_open, call, "render pass");
+    }
 
-        if (!self.inside(m_open, call, "render pass") || !self.readable(*self.render, call)) {
+    auto render_pass::_drawing(std::string_view call) -> bool {
+        if (!_open(call)) {
+            return false;
+        }
+
+        auto& self = *m_commands.m_state;
+        if (!self.readable(*self.render, call)) {
             return false;
         }
 
@@ -295,9 +302,12 @@ namespace rei::gpu::vk {
     auto render_pass::_drawing_indirect(std::string_view call, const vk::buffer& arguments,
                                         std::uint64_t offset, std::uint32_t count, std::uint64_t stride)
         -> bool {
-        auto& self = *m_commands.m_state;
+        if (!_open(call)) {
+            return false;
+        }
 
-        if (!self.inside(m_open, call, "render pass") || !self.usable(arguments.m_state, call, "buffer")) {
+        auto& self = *m_commands.m_state;
+        if (!self.usable(arguments.m_state, call, "buffer")) {
             return false;
         }
 
@@ -326,18 +336,18 @@ namespace rei::gpu::vk {
     }
 
     auto render_pass::_push_constants(std::span<const std::byte> data) -> void {
-        auto& self = *m_commands.m_state;
-
-        if (self.inside(m_open, "push_constants", "render pass")) {
-            self.push_constants(*self.render, data);
+        if (_open("push_constants")) {
+            m_commands.m_state->push_constants(*m_commands.m_state->render, data);
         }
     }
 
     auto render_pass::bind(const vk::graphics_pipeline& pipeline) -> void {
-        auto& self = *m_commands.m_state;
+        if (!_open("bind")) {
+            return;
+        }
 
-        if (!self.inside(m_open, "bind", "render pass") ||
-            !self.usable(pipeline.m_state, "bind in a render pass", "graphics pipeline")) {
+        auto& self = *m_commands.m_state;
+        if (!self.usable(pipeline.m_state, "bind in a render pass", "graphics pipeline")) {
             return;
         }
 
@@ -369,10 +379,12 @@ namespace rei::gpu::vk {
     }
 
     auto render_pass::bind(std::uint32_t set, const vk::descriptor_set& descriptors) -> void {
-        auto& self = *m_commands.m_state;
+        if (!_open("bind")) {
+            return;
+        }
 
-        if (self.inside(m_open, "bind", "render pass") &&
-            self.usable(descriptors.m_state, "bind in a render pass", "descriptor set")) {
+        auto& self = *m_commands.m_state;
+        if (self.usable(descriptors.m_state, "bind in a render pass", "descriptor set")) {
             self.bind(*self.render, set, descriptors.m_state);
         }
     }
@@ -384,19 +396,19 @@ namespace rei::gpu::vk {
 
     auto render_pass::push_descriptors(std::uint32_t set, std::span<const vk::descriptor> descriptors)
         -> void {
-        auto& self = *m_commands.m_state;
-
-        if (self.inside(m_open, "push_descriptors", "render pass")) {
-            self.push_descriptors(*self.render, set, descriptors);
+        if (_open("push_descriptors")) {
+            m_commands.m_state->push_descriptors(*m_commands.m_state->render, set, descriptors);
         }
     }
 
     auto render_pass::bind_vertex_buffer(std::uint32_t binding, const vk::buffer& buffer,
                                          std::uint64_t offset) -> void {
-        auto& self = *m_commands.m_state;
+        if (!_open("bind_vertex_buffer")) {
+            return;
+        }
 
-        if (!self.inside(m_open, "bind_vertex_buffer", "render pass") ||
-            !self.usable(buffer.m_state, "bind_vertex_buffer in a render pass", "buffer")) {
+        auto& self = *m_commands.m_state;
+        if (!self.usable(buffer.m_state, "bind_vertex_buffer in a render pass", "buffer")) {
             return;
         }
 
@@ -426,10 +438,12 @@ namespace rei::gpu::vk {
 
     auto render_pass::bind_index_buffer(const vk::buffer& buffer, vk::index_type type, std::uint64_t offset)
         -> void {
-        auto& self = *m_commands.m_state;
+        if (!_open("bind_index_buffer")) {
+            return;
+        }
 
-        if (!self.inside(m_open, "bind_index_buffer", "render pass") ||
-            !self.usable(buffer.m_state, "bind_index_buffer in a render pass", "buffer")) {
+        auto& self = *m_commands.m_state;
+        if (!self.usable(buffer.m_state, "bind_index_buffer in a render pass", "buffer")) {
             return;
         }
 
@@ -454,12 +468,11 @@ namespace rei::gpu::vk {
     }
 
     auto render_pass::viewport(const vk::area& area, float min_depth, float max_depth) -> void {
-        auto& self = *m_commands.m_state;
-
-        if (!self.inside(m_open, "viewport", "render pass")) {
+        if (!_open("viewport")) {
             return;
         }
 
+        const auto& self = *m_commands.m_state;
         const auto viewport = VkViewport{
             .x = static_cast<float>(area.x),
             .y = static_cast<float>(area.y),
@@ -472,12 +485,11 @@ namespace rei::gpu::vk {
     }
 
     auto render_pass::scissor(const vk::area& area) -> void {
-        auto& self = *m_commands.m_state;
-
-        if (!self.inside(m_open, "scissor", "render pass")) {
+        if (!_open("scissor")) {
             return;
         }
 
+        const auto& self = *m_commands.m_state;
         const auto rectangle = VkRect2D{
             .offset = {.x = area.x, .y = area.y},
             .extent = {.width = area.width, .height = area.height},

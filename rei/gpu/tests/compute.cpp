@@ -617,6 +617,11 @@ namespace rei::gpu::tests {
         auto pass = unfinished.compute({.name = "open"});
         EXPECT_TRUE(has_error(queue.submit(std::move(unfinished)), vk::error_code::invalid_argument,
                               "submit of unfinished: compute pass 'open' is still open"));
+        pass.bind(*doubling);
+        pass.bind(0, *operands);
+        pass.push_constants(1.0f);
+        pass.dispatch(1);
+        pass.dispatch_indirect(*values);
 
         ASSERT_TRUE(device().wait_idle());
         EXPECT_EQ(read<float>(*values), std::vector<float>(256, 1.0f));

@@ -109,6 +109,7 @@ namespace rei::gpu::vk {
 
         explicit render_pass(vk::commands& commands) noexcept;
 
+        auto _open(std::string_view call) -> bool;
         auto _drawing(std::string_view call) -> bool;
         auto _drawing_indirect(std::string_view call, const vk::buffer& arguments, std::uint64_t offset,
                                std::uint32_t count, std::uint64_t stride) -> bool;
@@ -158,6 +159,7 @@ namespace rei::gpu::vk {
 
         explicit compute_pass(vk::commands& commands) noexcept;
 
+        auto _open(std::string_view call) -> bool;
         auto _dispatching(std::string_view call, bool indirect) -> bool;
         auto _push_constants(std::span<const std::byte> data) -> void;
 

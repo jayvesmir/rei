@@ -21,10 +21,17 @@ namespace rei::gpu::vk {
         end();
     }
 
-    auto compute_pass::_dispatching(std::string_view call, bool indirect) -> bool {
-        auto& self = *m_commands.m_state;
+    auto compute_pass::_open(std::string_view call) -> bool {
+        return m_commands.m_state && m_commands.m_state->inside(m_open, call, "compute pass");
+    }
 
-        if (!self.inside(m_open, call, "compute pass") || !self.readable(*self.compute, call)) {
+    auto compute_pass::_dispatching(std::string_view call, bool indirect) -> bool {
+        if (!_open(call)) {
+            return false;
+        }
+
+        auto& self = *m_commands.m_state;
+        if (!self.readable(*self.compute, call)) {
             return false;
         }
 
@@ -53,18 +60,18 @@ namespace rei::gpu::vk {
     }
 
     auto compute_pass::_push_constants(std::span<const std::byte> data) -> void {
-        auto& self = *m_commands.m_state;
-
-        if (self.inside(m_open, "push_constants", "compute pass")) {
-            self.push_constants(*self.compute, data);
+        if (_open("push_constants")) {
+            m_commands.m_state->push_constants(*m_commands.m_state->compute, data);
         }
     }
 
     auto compute_pass::bind(const vk::compute_pipeline& pipeline) -> void {
-        auto& self = *m_commands.m_state;
+        if (!_open("bind")) {
+            return;
+        }
 
-        if (!self.inside(m_open, "bind", "compute pass") ||
-            !self.usable(pipeline.m_state, "bind in a compute pass", "compute pipeline")) {
+        auto& self = *m_commands.m_state;
+        if (!self.usable(pipeline.m_state, "bind in a compute pass", "compute pipeline")) {
             return;
         }
 
@@ -77,10 +84,12 @@ namespace rei::gpu::vk {
     }
 
     auto compute_pass::bind(std::uint32_t set, const vk::descriptor_set& descriptors) -> void {
-        auto& self = *m_commands.m_state;
+        if (!_open("bind")) {
+            return;
+        }
 
-        if (self.inside(m_open, "bind", "compute pass") &&
-            self.usable(descriptors.m_state, "bind in a compute pass", "descriptor set")) {
+        auto& self = *m_commands.m_state;
+        if (self.usable(descriptors.m_state, "bind in a compute pass", "descriptor set")) {
             self.bind(*self.compute, set, descriptors.m_state);
         }
     }
@@ -92,10 +101,8 @@ namespace rei::gpu::vk {
 
     auto compute_pass::push_descriptors(std::uint32_t set, std::span<const vk::descriptor> descriptors)
         -> void {
-        auto& self = *m_commands.m_state;
-
-        if (self.inside(m_open, "push_descriptors", "compute pass")) {
-            self.push_descriptors(*self.compute, set, descriptors);
+        if (_open("push_descriptors")) {
+            m_commands.m_state->push_descriptors(*m_commands.m_state->compute, set, descriptors);
         }
     }
 
@@ -110,10 +117,12 @@ namespace rei::gpu::vk {
     }
 
     auto compute_pass::dispatch_indirect(const vk::buffer& arguments, std::uint64_t offset) -> void {
-        auto& self = *m_commands.m_state;
+        if (!_open("dispatch_indirect")) {
+            return;
+        }
 
-        if (!self.inside(m_open, "dispatch_indirect", "compute pass") ||
-            !self.usable(arguments.m_state, "dispatch_indirect in a compute pass", "buffer")) {
+        auto& self = *m_commands.m_state;
+        if (!self.usable(arguments.m_state, "dispatch_indirect in a compute pass", "buffer")) {
             return;
         }
 
