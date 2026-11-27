@@ -1,6 +1,6 @@
 load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
-load("@rules_vulkan//vulkan:defs.bzl", "glsl_shader")
+load("@rules_vulkan//vulkan:defs.bzl", "glsl_shader", "slang_shader")
 load("//rei:copts.bzl", "CXXOPTS")
 load("//rei/gpu:vk/shaders.bzl", "vk_shaders")
 
@@ -35,15 +35,28 @@ REFLECTOR_REGRESSIONS = [
     "long_name.comp",
 ]
 
+SLANG = [
+    "kernels",
+    "surface",
+]
+
 PIPELINES = {
     "doubling": [":double.comp.spv"],
     "fill": [":fill.comp.spv"],
     "increment": [":increment.comp.spv"],
     "mark": [":post.vert.spv", ":mark.frag.spv"],
     "post": [":post.vert.spv", ":post.frag.spv"],
+    "scale": [":kernels.spv"],
     "scene": [":scene.vert.spv", ":triangle.frag.spv"],
+    "shift": [":kernels.spv"],
+    "surface": [":surface.spv"],
     "triangle": [":triangle.vert.spv", ":triangle.frag.spv"],
 }
+
+KERNELS = [
+    "scale",
+    "shift",
+]
 
 [
     glsl_shader(
@@ -60,10 +73,28 @@ PIPELINES = {
 ]
 
 [
+    slang_shader(
+        name = shader + ".spv",
+
+        srcs = ["shaders/" + shader + ".slang"],
+
+        target = "spirv",
+        opts = [
+            "-fvk-use-entrypoint-name",
+            "-matrix-layout-column-major",
+        ],
+
+        target_compatible_with = SHADER_COMPILER,
+    )
+    for shader in SLANG
+]
+
+[
     vk_shaders(
         name = pipeline,
 
         srcs = srcs,
+        entry_points = [pipeline] if pipeline in KERNELS else [],
 
         out = "shaders/" + pipeline + ".hpp",
 
@@ -107,6 +138,7 @@ cc_test(
         "canary.cpp",
         "compute.cpp",
         "device.cpp",
+        "interface.cpp",
         "present.cpp",
         "render.cpp",
         "support.hpp",
