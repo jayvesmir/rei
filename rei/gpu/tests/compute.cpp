@@ -366,13 +366,11 @@ namespace rei::gpu::tests {
 
         const auto kept = storage(device(), "kept", 3.0f);
         ASSERT_TRUE(kept) << kept.error();
+        auto doomed = storage(device(), "doomed", 0.0f);
+        ASSERT_TRUE(doomed) << doomed.error();
         auto operands = vk::descriptor_set::make(device(), {.layout = *layout, .name = "operands"});
         ASSERT_TRUE(operands) << operands.error();
-        {
-            const auto doomed = storage(device(), "doomed", 0.0f);
-            ASSERT_TRUE(doomed) << doomed.error();
-            ASSERT_TRUE(operands->write({{0, *kept}, {1, *doomed}}));
-        }
+        ASSERT_TRUE(operands->write({{0, *kept}, {1, *doomed}}));
 
         const auto run = [&](const vk::compute_pipeline& pipeline) -> std::expected<void, rei::error> {
             auto commands = queue.record();
@@ -387,6 +385,12 @@ namespace rei::gpu::tests {
                 return device().wait(ticket);
             });
         };
+
+        ASSERT_TRUE(run(*incrementing));
+        EXPECT_EQ(read<float>(*doomed), std::vector<float>(256, 4.0f));
+        {
+            const auto destroyed = std::move(*doomed);
+        }
 
         ASSERT_TRUE(run(*doubling));
         EXPECT_EQ(read<float>(*kept), std::vector<float>(256, 6.0f));

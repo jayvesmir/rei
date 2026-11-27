@@ -305,6 +305,7 @@ namespace rei::gpu::vk {
         std::vector<VkDescriptorPool> descriptor_pools;
 
         std::atomic<std::uint32_t> storage_writers{};
+        std::atomic<std::uint64_t> destroyed{};
 
         state(vk::instance instance, vk::physical_device physical) noexcept;
         state(const state& other) = delete;
@@ -432,8 +433,11 @@ namespace rei::gpu::vk {
         std::vector<detail::reference> references;
         std::map<std::pair<std::uint32_t, std::uint32_t>, vk::sampler> samplers;
         std::string name;
+        mutable std::atomic<std::uint64_t> intact_at{};
 
         ~state();
+
+        [[nodiscard]] auto intact() const -> bool;
     };
 
     struct compute_pipeline::state : detail::pipeline_state {

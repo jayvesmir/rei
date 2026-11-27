@@ -58,9 +58,7 @@ namespace rei::gpu::vk {
             scope.sets[set] = {.allocated = descriptors};
         }
 
-        if (std::ranges::any_of(bound.references, [](const detail::reference& reference) -> bool {
-                return reference.resource.expired();
-            })) {
+        if (!bound.intact()) {
             const auto lock = std::scoped_lock{device->mutex};
             for (auto& item : device->retired) {
                 item.serial = std::max(item.serial, serial);
@@ -144,7 +142,7 @@ namespace rei::gpu::vk {
                                  scope.label(), detail::quoted(pipeline.name, pipeline.kind), index));
                 return false;
             }
-            if (!bound.allocated) {
+            if (!bound.allocated || bound.allocated->intact()) {
                 continue;
             }
 

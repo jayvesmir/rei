@@ -192,7 +192,12 @@ namespace rei::gpu::vk {
     }
 
     image::state::~state() {
-        if (handle == VK_NULL_HANDLE || home == vk::access::present) {
+        if (handle == VK_NULL_HANDLE) {
+            return;
+        }
+
+        device->destroyed++;
+        if (home == vk::access::present) {
             return;
         }
 
@@ -211,6 +216,7 @@ namespace rei::gpu::vk {
             return;
         }
 
+        device->destroyed++;
         device->retire({.label = own ? std::string{} : detail::label(name, "image view"), .view = handle});
     }
 

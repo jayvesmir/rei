@@ -253,6 +253,21 @@ namespace rei::gpu::vk {
         });
     }
 
+    auto descriptor_set::state::intact() const -> bool {
+        const auto count = device->destroyed.load();
+        if (intact_at.load() == count) {
+            return true;
+        }
+        if (std::ranges::any_of(references, [](const detail::reference& reference) -> bool {
+                return reference.resource.expired();
+            })) {
+            return false;
+        }
+
+        intact_at.store(count);
+        return true;
+    }
+
     descriptor_set::descriptor_set(std::shared_ptr<descriptor_set::state> state) noexcept
         : m_state(std::move(state)) {}
 

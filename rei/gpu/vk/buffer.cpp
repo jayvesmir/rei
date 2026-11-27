@@ -51,6 +51,7 @@ namespace rei::gpu::vk {
             return;
         }
 
+        device->destroyed++;
         device->retire({
             .label = detail::label(name, "buffer"),
             .buffer = handle,
