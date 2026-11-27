@@ -109,7 +109,8 @@ namespace rei::gpu::vk {
 
         auto colors = std::vector<VkRenderingAttachmentInfo>{};
         for (const auto& target : options.color) {
-            const auto image = admit(target.target, vk::image_usage::color_attachment, false);
+            const auto& attachment = target.target.get();
+            const auto image = admit(attachment, vk::image_usage::color_attachment, false);
             if (!image) {
                 return vk::render_pass{*this};
             }
@@ -118,14 +119,14 @@ namespace rei::gpu::vk {
             scope.formats.color.push_back(image->format);
             scope.targets.push_back({
                 .image = image,
-                .range = target.target.m_state->range,
+                .range = attachment.m_state->range,
                 .needed = vk::access::color_attachment,
                 .overwritten = target.load != vk::load_op::load,
                 .wrote = true,
             });
             colors.push_back({
                 .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-                .imageView = target.target.handle(),
+                .imageView = attachment.handle(),
                 .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
                 .loadOp = static_cast<VkAttachmentLoadOp>(target.load),
                 .storeOp = static_cast<VkAttachmentStoreOp>(target.store),
@@ -145,9 +146,8 @@ namespace rei::gpu::vk {
                 self.fail(vk::error_code::invalid_argument,
                           std::format("resolve into {} in {}: it takes a multisampled target of its own "
                                       "format, and {} is {} with {} samples",
-                                      resolve.m_state->quoted(), scope.label(),
-                                      target.target.m_state->quoted(), detail::info_of(image->format).name,
-                                      image->samples));
+                                      resolve.m_state->quoted(), scope.label(), attachment.m_state->quoted(),
+                                      detail::info_of(image->format).name, image->samples));
                 return vk::render_pass{*this};
             }
 
@@ -168,7 +168,8 @@ namespace rei::gpu::vk {
         auto depth = VkRenderingAttachmentInfo{.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         if (options.depth) {
             const auto& target = *options.depth;
-            const auto image = admit(target.target, vk::image_usage::depth_stencil_attachment, false);
+            const auto& attachment = target.target.get();
+            const auto image = admit(attachment, vk::image_usage::depth_stencil_attachment, false);
             if (!image) {
                 return vk::render_pass{*this};
             }
@@ -177,13 +178,13 @@ namespace rei::gpu::vk {
             scope.formats.depth = image->format;
             scope.targets.push_back({
                 .image = image,
-                .range = target.target.m_state->range,
+                .range = attachment.m_state->range,
                 .needed = needed,
                 .overwritten = !target.read_only && target.load != vk::load_op::load,
                 .wrote = !target.read_only,
             });
 
-            depth.imageView = target.target.handle();
+            depth.imageView = attachment.handle();
             depth.imageLayout = detail::use_of(needed).layout;
             depth.loadOp =
                 target.read_only ? VK_ATTACHMENT_LOAD_OP_LOAD : static_cast<VkAttachmentLoadOp>(target.load);

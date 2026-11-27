@@ -66,7 +66,7 @@ namespace rei::gpu::vk {
     };
 
     struct image_sampler {
-        const vk::image_view& view;
+        std::reference_wrapper<const vk::image_view> view;
         const vk::sampler& sampler;
     };
 

@@ -332,14 +332,14 @@ namespace {
                 case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
                     kind = {
                         .type = "sampled_image",
-                        .member = "const vk::image_view&",
+                        .member = "std::reference_wrapper<const vk::image_view>",
                         .element = "std::reference_wrapper<const vk::image_view>",
                     };
                     break;
                 case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE:
                     kind = {
                         .type = "storage_image",
-                        .member = "const vk::image_view&",
+                        .member = "std::reference_wrapper<const vk::image_view>",
                         .element = "std::reference_wrapper<const vk::image_view>",
                     };
                     break;

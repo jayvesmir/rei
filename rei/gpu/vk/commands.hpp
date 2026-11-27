@@ -58,7 +58,7 @@ namespace rei::gpu::vk {
     using resolve_target = std::reference_wrapper<const vk::image_view>;
 
     struct color_target {
-        const vk::image_view& target;
+        std::reference_wrapper<const vk::image_view> target;
         vk::load_op load{vk::load_op::clear};
         vk::store_op store{vk::store_op::store};
         std::array<float, 4> clear{};
@@ -66,7 +66,7 @@ namespace rei::gpu::vk {
     };
 
     struct depth_target {
-        const vk::image_view& target;
+        std::reference_wrapper<const vk::image_view> target;
         vk::load_op load{vk::load_op::clear};
         vk::store_op store{vk::store_op::store};
         float clear{1.0f};
