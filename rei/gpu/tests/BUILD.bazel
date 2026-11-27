@@ -6,10 +6,13 @@ cc_test(
     size = "small",
 
     srcs = [
+        "device.cpp",
+        "support.hpp",
         "vocabulary.cpp",
     ],
 
     deps = [
+        "//rei/core:error",
         "//rei/gpu:vk",
         "@googletest//:gtest_main",
     ],
